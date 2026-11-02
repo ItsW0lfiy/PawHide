@@ -91,10 +91,10 @@ mod windows_ui {
             visuals.widgets.inactive.bg_fill = PANEL;
             visuals.widgets.hovered.bg_fill = HOVER;
             visuals.widgets.active.bg_fill = PURPLE_DIM;
-            visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, OUTLINE);
-            visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, PURPLE_DIM);
+            visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, OUTLINE);
+            visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, PURPLE_DIM);
             visuals.selection.bg_fill = PURPLE_DIM;
-            visuals.selection.stroke = egui::Stroke::new(1.0, PURPLE);
+            visuals.selection.stroke = egui::Stroke::new(1.0_f32, PURPLE);
             cc.egui_ctx.set_visuals(visuals);
             let (completion_tx, completion_rx) = mpsc::channel();
             let (icon_sender, icon_receiver) = mpsc::channel();
@@ -351,7 +351,7 @@ mod windows_ui {
             let expanded = self.expanded.contains(name);
             let count = windows.len();
             self.ensure_app_icon(name, windows[0].hwnd, windows[0].pid, ui.ctx());
-            egui::Frame::NONE.fill(PANEL).stroke(egui::Stroke::new(1.0, OUTLINE)).corner_radius(6)
+            egui::Frame::NONE.fill(PANEL).stroke(egui::Stroke::new(1.0_f32, OUTLINE)).corner_radius(6)
                 .inner_margin(egui::Margin::symmetric(9, 7)).show(ui, |ui| {
                     let width = ui.available_width();
                     ui.horizontal(|ui| {
@@ -368,7 +368,7 @@ mod windows_ui {
                         let action = if all_protected { "Show" } else { "Hide" };
                         let result = ui.add_enabled(!self.busy && !shell && supported, egui::Button::new(button_text(action, all_protected))
                             .fill(if all_protected { HOVER } else { SIDEBAR })
-                            .stroke(egui::Stroke::new(1.0, if all_protected { OUTLINE } else { PURPLE_DIM }))
+                            .stroke(egui::Stroke::new(1.0_f32, if all_protected { OUTLINE } else { PURPLE_DIM }))
                             .min_size(egui::vec2(60.0, 27.0)));
                         if result.on_hover_text(if shell { "Select an individual Explorer folder window below (desktop/taskbar remain blocked)" }
                             else if !supported { "PawHide cannot inject into this protected application" }
