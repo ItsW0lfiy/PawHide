@@ -57,6 +57,8 @@ enum Command {
     Logs { #[command(subcommand)] command: Option<LogsCommand> },
     /// Manage protected directories and document-open notifications.
     Folders { #[command(subcommand)] command: FolderCommand },
+    /// Capture-only experiments that never change local window appearance.
+    Capture { #[command(subcommand)] command: CaptureCommand },
     /// Print version without additional technical details.
     Version,
 }
@@ -80,6 +82,15 @@ enum FolderCommand {
     /// For cooperating apps (e.g. Wolfmark): notify a verified HWND and opened file.
     Notify { hwnd: String, path: std::path::PathBuf },
 }
+
+#[derive(Subcommand, Debug)]
+enum CaptureCommand {
+    /// Control the Windows taskbar's capture exclusion (experimental).
+    Taskbar { #[command(subcommand)] command: TaskbarCommand },
+}
+
+#[derive(Subcommand, Debug)]
+enum TaskbarCommand { Status, Hide, Show }
 
 #[derive(Subcommand, Debug)]
 enum StartupCommand { Enable, Disable, Status }
@@ -110,6 +121,7 @@ fn run() -> Result<()> {
             Config {command} => commands::config(command),
             Logs {command} => commands::logs(command.unwrap_or(LogsCommand::Show { lines:30 })),
             Folders {command} => commands::folders(command),
+            Capture {command} => commands::capture(command),
             Version => { println!("PawHide {}", env!("CARGO_PKG_VERSION")); Ok(()) },
         };
     }
@@ -134,6 +146,13 @@ mod tests {
     fn folder_subcommands() {
         assert!(Cli::try_parse_from(["pawhide","folders","add","C:\\Private"]).is_ok());
         assert!(Cli::try_parse_from(["pawhide","folders","notify","0xABCD","C:\\Private\\doc.md"]).is_ok());
+    }
+    #[test]
+    fn taskbar_capture_commands() {
+        for action in ["hide", "show", "status"] {
+            assert!(Cli::try_parse_from(["pawhide", "capture", "taskbar", action]).is_ok());
+        }
+        assert!(Cli::try_parse_from(["pawhide", "capture", "taskbar", "disable-locally"]).is_err());
     }
     #[test]
     fn manual_title_and_pick_syntax() {
