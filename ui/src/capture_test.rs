@@ -6,7 +6,7 @@ use crate::capture_native::{CaptureSession, TARGET_FPS};
 use eframe::egui::{self, Color32, RichText, TextureHandle};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::{
-    Foundation::{BOOL, LPARAM, RECT},
+    Foundation::{LPARAM, RECT},
     Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW},
 };
 
@@ -19,7 +19,7 @@ struct Display {
 fn monitors() -> Result<Vec<Display>, String> {
     unsafe extern "system" fn collect(
         monitor: HMONITOR, _: HDC, _: *mut RECT, arg: LPARAM,
-    ) -> BOOL {
+    ) -> i32 {
         let out = unsafe { &mut *(arg as *mut Vec<Display>) };
         let mut info = MONITORINFOEXW::default();
         info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
