@@ -37,3 +37,38 @@ pub fn apply_bounded(window: &Window, hide: bool, timeout: Duration) -> Result<(
         }
     }
 }
+
+
+/// Bounded helper for capture-only taskbar experimentation.
+/// Never changes physical desktop window styles or visibility.
+pub fn taskbar_bounded(action: &'static str, timeout: Duration) -> Result<String, String> {
+    if !matches!(action, "hide" | "show" | "status") {
+        return Err("unsupported taskbar action".to_owned());
+    }
+    let helper = std::env::current_exe()
+        .map_err(|e| e.to_string())?.with_file_name("pawhide.exe");
+    let mut child = Command::new(&helper)
+        .args(["capture", "taskbar", action])
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn().map_err(|e| format!("cannot run {}: {e}", helper.display()))?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let output = child.wait_with_output().map_err(|e| e.to_string())?;
+                let out = String::from_utf8_lossy(&output.stdout);
+                let err = String::from_utf8_lossy(&output.stderr);
+                if output.status.success() { return Ok(out.trim().to_owned()); }
+                return Err(format!("{} {}", err.trim(), out.trim()).trim().to_owned());
+            }
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("taskbar operation timed out; remote affinity state unverified".to_owned());
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(e) => { let _ = child.kill(); let _ = child.wait(); return Err(e.to_string()); }
+        }
+    }
+}
