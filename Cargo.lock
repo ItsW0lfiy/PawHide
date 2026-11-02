@@ -1783,6 +1783,7 @@ dependencies = [
  "eframe",
  "image",
  "pawhide-core",
+ "windows",
  "windows-sys 0.61.2",
  "winres",
 ]
