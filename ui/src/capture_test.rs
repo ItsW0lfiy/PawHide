@@ -39,7 +39,7 @@ fn monitors() -> Result<Vec<Display>, String> {
         });
         1
     }
-    let mut out = Vec::new();
+    let mut out: Vec<Display> = Vec::new();
     if unsafe {
         EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(collect),
             &mut out as *mut _ as LPARAM)
