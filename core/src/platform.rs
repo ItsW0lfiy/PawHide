@@ -161,3 +161,54 @@ pub fn is_background_ui_window(w: &Window) -> bool {
     ];
     INTERNAL.iter().any(|n| w.exe.eq_ignore_ascii_case(n))
 }
+
+
+/// Capture-only experiment: identify *only* Windows taskbar top-level windows.
+/// Unlike normal window discovery these windows often have no title.
+/// No window styles, position, visibility or taskbar auto-hide preferences change.
+pub fn is_taskbar_class_name(class_name: &str) -> bool {
+    matches!(class_name, "Shell_TrayWnd" | "Shell_SecondaryTrayWnd")
+}
+
+pub fn taskbar_windows() -> Result<Vec<Window>> {
+    unsafe extern "system" fn collect(hwnd: *mut c_void, data: isize) -> i32 {
+        let windows = unsafe { &mut *(data as *mut Vec<Window>) };
+        if unsafe { GetAncestor(hwnd, GA_ROOT) } != hwnd { return 1; }
+        let mut class = [0_u16; 128];
+        let len = unsafe { GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32) };
+        if len <= 0 { return 1; }
+        let name = String::from_utf16_lossy(&class[..len as usize]);
+        if !is_taskbar_class_name(&name) { return 1; }
+        let mut pid = 0_u32;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        if pid == 0 { return 1; }
+        let exe = process_name(pid);
+        // Never inject into an unrelated window impersonating a taskbar class.
+        if !exe.eq_ignore_ascii_case("explorer.exe") { return 1; }
+        windows.push(Window {
+            hwnd: hwnd as usize, pid, exe,
+            title: if name == "Shell_TrayWnd" { "Primary Windows taskbar" }
+                else { "Secondary Windows taskbar" }.into(),
+            affinity: affinity(hwnd as usize),
+            tool_window: false,
+        });
+        1
+    }
+    let mut result = Vec::new();
+    ensure!(unsafe { EnumWindows(Some(collect), &mut result as *mut _ as isize) } != 0,
+        "could not enumerate taskbar windows");
+    Ok(result)
+}
+
+#[cfg(test)]
+mod taskbar_tests {
+    use super::is_taskbar_class_name;
+    #[test]
+    fn exact_taskbar_classes_only() {
+        assert!(is_taskbar_class_name("Shell_TrayWnd"));
+        assert!(is_taskbar_class_name("Shell_SecondaryTrayWnd"));
+        assert!(!is_taskbar_class_name("CabinetWClass"));
+        assert!(!is_taskbar_class_name("Progman"));
+        assert!(!is_taskbar_class_name("Shell_TrayWnd_extra"));
+    }
+}
