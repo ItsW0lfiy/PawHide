@@ -3,10 +3,10 @@ use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, fs::OpenOptions, os::windows::process::CommandExt, process::{Command, Stdio}, sync::{Mutex, OnceLock}, thread, time::{Duration, Instant}};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, WAIT_OBJECT_0},
-    System::Threading::{CreateEventW, OpenEventW, SetEvent, WaitForSingleObject, CREATE_NO_WINDOW, EVENT_MODIFY_STATE, SYNCHRONIZE},
+    System::Threading::{CreateEventW, OpenEventW, SetEvent, WaitForSingleObject, CREATE_NO_WINDOW, EVENT_MODIFY_STATE},
     UI::{
-        Accessibility::{SetWinEventHook, UnhookWinEvent, EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS},
-        WindowsAndMessaging::{DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE},
+        Accessibility::{SetWinEventHook, UnhookWinEvent},
+        WindowsAndMessaging::{DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE, EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS},
     },
 };
 
@@ -17,7 +17,7 @@ fn wide(text: &str) -> Vec<u16> { text.encode_utf16().chain(Some(0)).collect() }
 
 fn running_handle() -> Option<HANDLE> {
     let name = wide(EVENT_NAME);
-    let h = unsafe { OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, 0, name.as_ptr()) };
+    let h = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr()) };
     if h.is_null() { None } else { Some(h) }
 }
 
@@ -174,7 +174,7 @@ fn run_monitor() -> Result<()> {
             if queue.is_empty() { false } else { queue.clear(); true }
         });
         if last_reload.elapsed() >= Duration::from_secs(1) {
-            match config::load() { Ok(new) => cfg = new, Err(err) => eprintln!("WARN configuration reload: {err:#}") }
+            match config::load() { Ok(new) => { if new.applications != cfg.applications { last_scan = Instant::now() - Duration::from_secs(10); } cfg = new; }, Err(err) => eprintln!("WARN configuration reload: {err:#}") }
             last_reload = Instant::now();
         }
         if pending || last_scan.elapsed() >= Duration::from_secs(2) {
