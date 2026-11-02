@@ -192,9 +192,9 @@ the DLL-injection path and does not change local window visibility.
 - Target 60 FPS, show measured actual FPS and drop old frames instead of
   buffering them (static displays may legitimately produce fewer frames).
 - Preview scales to at most 1280×720 before uploading to the UI.
-- **Cursor off by default** avoids double-drawn/flickering pointers; when
-  enabled, WGC captures the cursor natively rather than drawing an extra
-  software cursor.
+- **Cursor on by default**, composed by WGC rather than separately drawn by
+  FFmpeg or egui. Turn it off in the tester if a particular display driver
+  still shows pointer artifacts.
 - If there are multiple monitors, position PawHide on the other monitor to
   avoid the recursive preview effect.
 - The GUI starts larger (1080×700), can be resized (880×580 to 1600×1000),
