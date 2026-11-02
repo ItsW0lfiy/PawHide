@@ -127,12 +127,15 @@ pub fn folders(command: FolderCommand) -> Result<()> {
             let mut cfg = config::load()?;
             if !cfg.folders.contains(&canonical) { cfg.folders.push(canonical.clone()); config::save(&cfg)?; }
             println!("Protected folder registered: {}", canonical.display());
-            println!("Cooperating applications must call `pawhide folders notify <HWND> <FILE>` when opening a document. Filename/title guessing is deliberately disabled.");
+            println!("Explorer folder windows will be monitored. For Wolfmark documents, exact file-open notifications remain required.");
+            crate::auto::start()?;
         }
         FolderCommand::Remove { path } => {
-            let canonical = folders::validated_folder(&path)?;
+            // Allow removing missing/renamed folders and old \?\ saved paths.
+            let canonical = folders::display_path(&path);
             let mut cfg = config::load()?;
-            cfg.folders.retain(|folder| folder != &canonical);
+            cfg.folders.retain(|folder| folder != &canonical &&
+                folders::validated_folder(folder).ok().as_ref() != Some(&canonical));
             config::save(&cfg)?;
             println!("Folder rule removed: {}", canonical.display());
         }
@@ -155,7 +158,7 @@ pub fn folders(command: FolderCommand) -> Result<()> {
                 let window = platform::resolve(&hwnd)?.into_iter().find(|w| w.hwnd == handle)
                     .context("window handle is not a visible top-level window")?;
                 ensure!(platform::can_protect_window(&window), "this application window cannot be protected");
-                ensure!(platform::apply_window(&window, true, false)?, "could not verify capture exclusion");
+                if window.affinity != Some(EXCLUDED) { crate::auto::protect_bounded(&window)?; }
                 println!("Protected {} because document is inside {}", window.exe, folder.display());
             } else {
                 println!("No matching protected folder; left capture state unchanged");

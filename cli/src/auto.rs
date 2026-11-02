@@ -41,6 +41,7 @@ fn status() -> Result<()> {
     println!("AutoHide: {}", if is_running() { "Running" } else { "Stopped" });
     let cfg = config::load()?;
     println!("Configured applications: {}", cfg.applications.len());
+    println!("Protected folders: {}", cfg.folders.len());
     for name in cfg.applications {
         let found = platform::resolve(&name)?;
         let verified = found.iter().filter(|w| w.affinity == Some(platform::EXCLUDED)).count();
@@ -49,9 +50,10 @@ fn status() -> Result<()> {
     Ok(())
 }
 
-fn start() -> Result<()> {
-    ensure!(!is_running(), "AutoHide is already running");
-    ensure!(!config::load()?.applications.is_empty(), "add an application first (pawhide auto add PicView.exe)");
+pub fn start() -> Result<()> {
+    if is_running() { println!("PawHide monitor already running"); return Ok(()); }
+    let cfg = config::load()?;
+    ensure!(!cfg.applications.is_empty() || !cfg.folders.is_empty(), "add an AutoHide application or protected folder first");
     let log_path = config::config_path()?.with_file_name("auto.log");
     std::fs::create_dir_all(log_path.parent().expect("log has parent"))?;
     let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
@@ -142,7 +144,7 @@ unsafe extern "system" fn win_event_callback(
 
 /// The long-running AutoHide monitor must never perform DLL injection in its
 /// own thread. A failing app can otherwise freeze monitoring and stop signals.
-fn protect_bounded(w: &platform::Window) -> Result<()> {
+pub(crate) fn protect_bounded(w: &platform::Window) -> Result<()> {
     let exe = std::env::current_exe()?;
     let mut child = Command::new(exe)
         .args(["hide", &format!("0x{:X}", w.hwnd)])
@@ -171,8 +173,18 @@ fn scan(cfg: &config::Config, retries: &mut HashMap<(usize, u32), Instant>, log_
     let now = Instant::now();
     let all = platform::windows()?;
     retries.retain(|(hwnd, pid), _| all.iter().any(|w| w.hwnd == *hwnd && w.pid == *pid));
+    // Explorer paths are taken from ShellWindows COM; window titles are never
+    // interpreted as filesystem paths. A failed COM lookup does not infer a match.
+    let explorer_folders = if cfg.folders.is_empty() { HashMap::new() }
+        else { match pawhide_core::explorer::open_folder_windows() {
+            Ok(found) => found,
+            Err(error) => { if log_failures { eprintln!("WARN Explorer folder discovery: {error:#}"); } HashMap::new() }
+        } };
     for w in all {
-        if !cfg.applications.iter().any(|name| w.exe.eq_ignore_ascii_case(name)) { continue; }
+        let rule_match = cfg.applications.iter().any(|name| w.exe.eq_ignore_ascii_case(name));
+        let folder_match = platform::is_explorer_folder(&w) && explorer_folders.get(&w.hwnd)
+            .is_some_and(|paths| paths.iter().any(|path| pawhide_core::folders::match_directory(&cfg.folders, path).ok().flatten().is_some()));
+        if !rule_match && !folder_match { continue; }
         if w.affinity == Some(platform::EXCLUDED) { retries.remove(&(w.hwnd, w.pid)); continue; }
         if !platform::can_protect_window(&w) { continue; }
         // Do not continually re-inject into uncooperative processes.
@@ -211,7 +223,7 @@ fn run_monitor() -> Result<()> {
             if queue.is_empty() { false } else { queue.clear(); true }
         });
         if last_reload.elapsed() >= Duration::from_secs(1) {
-            match config::load() { Ok(new) => { if new.applications != cfg.applications { last_scan = Instant::now() - Duration::from_secs(10); } cfg = new; }, Err(err) => eprintln!("WARN configuration reload: {err:#}") }
+            match config::load() { Ok(new) => { if new.applications != cfg.applications || new.folders != cfg.folders { last_scan = Instant::now() - Duration::from_secs(10); } cfg = new; }, Err(err) => eprintln!("WARN configuration reload: {err:#}") }
             last_reload = Instant::now();
         }
         if pending || last_scan.elapsed() >= Duration::from_secs(2) {

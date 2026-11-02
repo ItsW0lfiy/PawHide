@@ -1,6 +1,8 @@
 //! Reusable, Windows-focused PawHide functionality shared by CLI and GUI.
 //! Capture exclusion is best-effort, NOT a security boundary against all capture methods.
 pub mod config;
+#[cfg(windows)]
+pub mod explorer;
 pub mod folders;
 #[cfg(windows)]
 pub mod platform;

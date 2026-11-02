@@ -1771,6 +1771,8 @@ dependencies = [
  "dll-syringe",
  "serde",
  "serde_json",
+ "url",
+ "windows",
  "windows-sys 0.61.2",
 ]
 

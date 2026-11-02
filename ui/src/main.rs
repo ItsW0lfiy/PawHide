@@ -51,6 +51,7 @@ mod windows_ui {
         folders: Vec<PathBuf>,
         page: Page,
         filter: Filter,
+        show_system_windows: bool,
         search: String,
         new_rule: String,
         new_folder: String,
@@ -101,7 +102,7 @@ mod windows_ui {
             let logo = cc.egui_ctx.load_texture("pawhide-brand", logo_image(), egui::TextureOptions::LINEAR);
             let mut app = Self {
                 windows: Vec::new(), rules: Vec::new(), folders: Vec::new(), page: Page::Windows,
-                filter: Filter::All, search: String::new(), new_rule: String::new(), new_folder: String::new(),
+                filter: Filter::All, show_system_windows: false, search: String::new(), new_rule: String::new(), new_folder: String::new(),
                 expanded: HashSet::new(), note: String::new(), note_error: false,
                 busy: false, last_refresh: Instant::now() - Duration::from_secs(10),
                 completion_tx, completion_rx, icon_sender, icon_receiver,
@@ -113,7 +114,7 @@ mod windows_ui {
 
         fn refresh(&mut self) {
             match platform::windows() {
-                Ok(found) => self.windows = found.into_iter().filter(|w| !w.tool_window).collect(),
+                Ok(found) => self.windows = found.into_iter().filter(|w| !w.tool_window && (self.show_system_windows || !platform::is_background_ui_window(w))).collect(),
                 Err(error) => { self.note = format!("Window discovery failed: {error:#}"); self.note_error = true; }
             }
             match config::load() {
@@ -232,7 +233,7 @@ mod windows_ui {
             self.refresh();
         }
 
-        fn add_folder(&mut self) {
+        fn add_folder(&mut self, ctx: egui::Context) {
             let result: Result<String, String> = (|| {
                 let folder = folders::validated_folder(std::path::Path::new(self.new_folder.trim()))
                     .map_err(|e| e.to_string())?;
@@ -243,7 +244,7 @@ mod windows_ui {
                 Ok(format!("Folder registered: {}", folder.display()))
             })();
             match result {
-                Ok(note) => { self.note = note; self.note_error = false; }
+                Ok(note) => { self.note = note; self.note_error = false; self.refresh(); self.auto_command("start", ctx); return; }
                 Err(error) => { self.note = error; self.note_error = true; }
             }
             self.refresh();
@@ -268,7 +269,7 @@ mod windows_ui {
                 ui.add_sized([available, 29.0], egui::TextEdit::singleline(&mut self.new_folder)
                     .hint_text(r"D:\Private\Work"));
                 if ui.add_sized([60.0, 29.0], egui::Button::new("Add")).clicked() {
-                    self.add_folder();
+                    self.add_folder(ui.ctx().clone());
                 }
             });
             ui.add_space(10.0);
@@ -284,7 +285,7 @@ mod windows_ui {
                 ui.separator();
             }
             ui.add_space(9.0);
-            ui.label(RichText::new("Important: a folder rule activates only when an application reports the exact opened file and window handle. It cannot determine document paths from titles, and Wolfmark integration is not connected yet.")
+            ui.label(RichText::new("Explorer: open folder windows are automatically monitored by the background service. Wolfmark: needs an exact file-open notification from Wolfmark; title guessing is not safe.")
                 .color(WARNING).size(11.0));
         }
 
@@ -428,6 +429,8 @@ mod windows_ui {
             ui.horizontal(|ui| {
                 if ui.selectable_label(self.filter == Filter::All, "All programs").clicked() { self.filter = Filter::All; }
                 if ui.selectable_label(self.filter == Filter::Hidden, format!("Hidden ({hidden})")).clicked() { self.filter = Filter::Hidden; }
+                ui.checkbox(&mut self.show_system_windows, "System windows")
+                    .on_hover_text("Include internal input hosts and app helper processes");
             });
             ui.add_space(3.0);
             let query = self.search.trim().to_ascii_lowercase();

@@ -9,6 +9,7 @@ rust-version.workspace = true
 anyhow = "1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+url = "2.5"
 
 [target.'cfg(windows)'.dependencies]
 dll-syringe = { version = "=0.18.2", default-features = false, features = ["syringe", "rpc-raw"] }
@@ -16,3 +17,6 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation", "Win32_System_Threading", "Win32_Security",
     "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility",
 ] }
+
+# Windows ShellWindows COM: folder paths of live Explorer windows.
+windows = { version = "=0.62.2", features = ["Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_UI_Shell", "Win32_Foundation"] }

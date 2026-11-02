@@ -105,7 +105,8 @@ pub fn is_explorer_folder(w: &Window) -> bool {
 }
 
 pub fn can_protect_window(w: &Window) -> bool {
-    if w.pid == unsafe { GetCurrentProcessId() } { return false; }
+    // The GUI delegates injection to pawhide.exe, so its own window IS eligible.
+    // apply_window still rejects injecting into the calling process itself.
     if w.exe.eq_ignore_ascii_case("RobloxPlayerBeta.exe") { return false; }
     w.pid != shell_pid() || is_explorer_folder(w)
 }
@@ -149,3 +150,14 @@ pub fn apply_window(w: &Window, protect: bool, allow_shell: bool) -> Result<bool
     }
 }
 
+
+/// Hide non-interactive Windows infrastructure from the GUI's *default* list.
+/// The CLI and an explicit "Show system windows" option still expose them.
+pub fn is_background_ui_window(w: &Window) -> bool {
+    const INTERNAL: &[&str] = &[
+        "textinputhost.exe", "applicationframehost.exe", "shellexperiencehost.exe",
+        "searchhost.exe", "startmenuexperiencehost.exe", "lockapp.exe",
+        "superhuman.webui.exe",
+    ];
+    INTERNAL.iter().any(|n| w.exe.eq_ignore_ascii_case(n))
+}

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
+use crate::folders;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -50,15 +51,16 @@ pub fn load() -> Result<Config> {
     cfg.applications = sorted;
     // Saved folders may be unavailable (removable/network drives). Keep them
     // configured; document notifications fail closed until they are reachable.
-    cfg.folders.sort();
-    cfg.folders.dedup();
+    folders::clean_saved_paths(&mut cfg.folders);
     Ok(cfg)
 }
 
 pub fn save(cfg: &Config) -> Result<()> {
     let path = config_path()?;
     fs::create_dir_all(path.parent().expect("config path has parent"))?;
-    let serialized = serde_json::to_vec_pretty(cfg)?;
+    let mut clean = cfg.clone();
+    folders::clean_saved_paths(&mut clean.folders);
+    let serialized = serde_json::to_vec_pretty(&clean)?;
     // A temp file prevents a partial JSON write from crashing a running watcher.
     let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
     fs::write(&tmp, serialized)?;

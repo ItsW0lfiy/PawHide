@@ -6,7 +6,7 @@ PawHide has a **CLI-first development priority** and an **optional native egui U
 
 ## Status
 
-The v0.2 CLI/manual injection and AutoHide were tested successfully on the author's Windows desktop with PicView, Wolfmark and Discord. **The v0.3 refactor and UI are new and still need Windows compilation and testing.** Treat any failed or unknown status as unprotected. Protection does not provide guaranteed privacy against every capture method.
+The v0.2 CLI/manual injection and AutoHide were tested successfully on the author's Windows desktop with PicView, Wolfmark and Discord. **The v0.3 refactor and UI have been compiled by the user on Windows; the latest folder automation and installer changes still require Windows verification.** Treat any failed or unknown status as unprotected. Protection does not provide guaranteed privacy against every capture method.
 
 ## Build
 
@@ -17,7 +17,7 @@ cargo build --release
 cargo test --workspace
 ```
 
-The default build produces `pawhide.exe`, `PawHideUI.exe`, and `pawhide_agent.dll`. Keep `pawhide.exe` and `pawhide_agent.dll` in the same folder. The UI uses the same DLL for protection, and expects `pawhide.exe` alongside it only for controlling the AutoHide worker (other UI features use the shared library directly).
+The default build produces `pawhide.exe`, `PawHideUI.exe`, and `pawhide_agent.dll`. Keep `pawhide.exe` and `pawhide_agent.dll` in the same folder. The UI delegates bounded manual protection and AutoHide control to `pawhide.exe`; keep all three files together.
 
 Build a single frontend when iterating:
 
@@ -90,7 +90,7 @@ Rules are stored at `%LOCALAPPDATA%\PawHide\config.json`:
 
 - `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` affects **all compatible capture applications**, including ShareX, not only Discord. PawHide does not inject into Discord or bypass any capture security.
 - The external DLL agent is injected into selected processes. Injection can fail, freeze, or destabilize a target; avoid privileged/security-sensitive processes. The released agent and CLI target x64 Windows applications.
-- Shell-wide `explorer.exe` targeting is blocked to protect the desktop/taskbar. Folder-aware Explorer rules and tab-aware browser protection **are not implemented**.
+- Shell-wide `explorer.exe` targeting is blocked to protect the desktop/taskbar. Explorer folder monitoring is experimental and matches actual ShellWindows file URLs. Browser-tab-level protection is **not implemented**.
 - Status readback only confirms Windows affinity, not that Discord or a different capture pipeline hides the window.
 - PawHide does not hide notification text, taskbar previews, logs, titles or other unprotected content. It is not a substitute for privacy-conscious sharing choices.
 
@@ -127,3 +127,16 @@ Build with `cargo build --release` (the CLI, agent, **and** UI are default membe
 - **Protected-folder rules (foundation):** configure canonical folder paths with `pawhide folders add "D:\Private"`, `remove`, `list`, and `match "D:\Private\file.md"`, or the **Folders** GUI page. A cooperating application can invoke `pawhide folders notify 0xHWND "D:\Private\file.md"` after opening a document. If the path is inside a configured folder, PawHide attempts to exclude **that window**, even if the application is absent from AutoHide rules. Rules are path-boundary checked, resolve symlinks, and never infer a file's location from just its window title. **Wolfmark is not yet connected to this notification interface, so folder rules are not globally automatic.** The notification only adds protection; moving out of a folder doesn't automatically unhide an already protected window.
 
 **Windows capture caveat:** even verified affinity is best-effort and cannot guarantee secrecy against every capture method. Test in your own screen-share before depending on it.
+
+
+## v0.3.3 development: folder monitoring, UI filtering, distribution
+
+- **GUI self-protection:** `PawHideUI.exe` is not blocked merely because it is the GUI's own process. Manual operations always run through a separate CLI helper, which still refuses to inject into itself.
+- **Window list:** common input-host/shell helper processes are hidden by default. Toggle **System windows** to see everything; the CLI still lists the full inventory. The filter does not determine protection eligibility.
+- **Directory rules:** canonical Windows `\\?\` paths from older configurations are shown and saved as normal readable drive/UNC paths. Register an **existing** directory; an incorrect/missing directory produces a clear error. Path comparisons canonicalize symlinks and use directory-component boundaries.
+- **Explorer:** registering a folder starts the existing AutoHide monitor even without any application rules. The monitor queries ShellWindows COM for *actual* opened directory paths and excludes matching **Explorer folder windows only**. Desktop/taskbar windows remain excluded from eligible targets. Modern Explorer tabs can share a window handle; a protected folder tab may cause the entire shared window to be protected. The check is asynchronous: it is not zero-frame privacy.
+- **Document applications:** `pawhide folders notify 0xHWND "D:\Protected\file.md"` hides the specific window regardless of AutoHide app rules. This requires the application to report the **exact file path**. Wolfmark's actual file-open callback has **not yet been integrated**, so opening a protected document in Wolfmark will not automatically protect it yet. No window-title inference is done. Protection is not automatically undone when the document closes.
+- **Installer:** `installer/PawHide.nsi` builds an **online-only**, per-user NSIS bootstrap. It downloads and verifies a GitHub Release portable ZIP at install time and creates shortcuts/uninstall registration. `installer/bootstrap.ps1` is embedded, but not program binaries. Requires a published release; anonymous download works only for public releases. With the repository currently private, a developer can use authenticated GitHub CLI (`gh auth login`) on their PC, or the project must publish binaries from a public download repository. No credentials are bundled or requested by the installer.
+- **Portable:** pushing a `v*` tag triggers the Windows release pipeline. It produces `PawHide-Windows-x64.zip`, its SHA-256 file, and `PawHide-Online-Setup.exe`; normal pushes build and upload portable workflow artifacts. **Do not publish a tag until the native Windows build and behavior have been tested.**
+
+Both GUI and CLI are default Cargo workspace members and are included in the portable distribution. The online setup requires the network; there is intentionally **no full offline installer**.
