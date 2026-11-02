@@ -41,7 +41,7 @@ fn executable_path(pid: u32) -> Option<Vec<u16>> {
 /// Never DestroyIcon on an HWND-owned icon: its owner controls its lifetime.
 pub fn from_window(hwnd: usize, pid: u32) -> Option<IconPixels> {
     unsafe {
-        let mut icon = std::ptr::null_mut();
+        let mut icon: *mut c_void = ptr::null_mut();
         for kind in [ICON_BIG, ICON_SMALL2] {
             let mut returned = 0usize;
             let _ = SendMessageTimeoutW(hwnd as _, WM_GETICON, kind as usize, 0,
