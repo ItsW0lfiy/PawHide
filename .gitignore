@@ -1,0 +1,6 @@
+/target/
+**/*.pdb
+*.log
+# Local privacy preferences must never enter Git.
+config.json
+.env

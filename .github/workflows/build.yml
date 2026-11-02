@@ -1,0 +1,25 @@
+name: Windows Rust build
+on:
+  push:
+  pull_request:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+      - name: Build
+        run: cargo build --release --workspace
+      - name: Unit tests
+        run: cargo test --workspace
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/pawhide.exe, target/release/pawhide_agent.dll dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PawHide-Windows-x64
+          path: dist/

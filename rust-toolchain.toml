@@ -1,0 +1,5 @@
+# dll-syringe 0.18.x uses unstable linked_list_cursors.
+# This requirement is scoped to PawHide, not the user's global Rust installation.
+[toolchain]
+channel = "nightly"
+profile = "minimal"
