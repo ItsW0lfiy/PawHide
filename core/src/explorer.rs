@@ -6,7 +6,7 @@ use anyhow::{Result, Context};
 use windows::{
     core::Interface,
     Win32::{
-        System::{Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED}, Variant::{VARIANT, VT_I4}},
+        System::{Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED}, Variant::VARIANT},
         UI::Shell::{IShellWindows, IWebBrowser2, ShellWindows},
     },
 };
@@ -25,9 +25,9 @@ pub fn open_folder_windows() -> Result<HashMap<usize, Vec<PathBuf>>> {
         let shell: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_LOCAL_SERVER)
             .context("cannot enumerate Explorer folder windows")?;
         for idx in 0..shell.Count()?.max(0) {
-            let mut index = VARIANT::default();
-            index.Anonymous.Anonymous.vt = VT_I4;
-            index.Anonymous.Anonymous.Anonymous.lVal = idx;
+            // Construct an owned VT_I4 index without directly mutating
+            // ManuallyDrop union fields (rejected by current Rust nightly).
+            let index = VARIANT::from(idx);
             let Ok(item) = shell.Item(&index) else { continue; };
             let Ok(browser) = item.cast::<IWebBrowser2>() else { continue; };
             let Ok(hwnd) = browser.HWND() else { continue; };
