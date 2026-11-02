@@ -48,6 +48,10 @@ Check that a GitHub release exists and is accessible. No offline installer is pr
 SectionEnd
 
 Section "Uninstall"
+  ; Stop the user monitor and clear its startup entry before removing binaries.
+  IfFileExists "$INSTDIR\pawhide.exe" 0 +2
+    ExecWait '"$INSTDIR\pawhide.exe" auto stop'
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "PawHide Auto"
   ; User rules and logs in LOCALAPPDATA\PawHide deliberately survive uninstall.
   Delete "$SMPROGRAMS\PawHide.lnk"
   Delete "$SMPROGRAMS\PawHide CLI.lnk"
