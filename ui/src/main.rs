@@ -513,6 +513,17 @@ mod windows_ui {
         fn settings_page(&mut self, ui: &mut egui::Ui) {
             Self::heading(ui, "Settings", "Local configuration");
             ui.label(RichText::new("Taskbar in screen capture · experimental").strong().color(TEXT));
+            match platform::taskbar_windows() {
+                Ok(found) if !found.is_empty() => {
+                    let excluded = found.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
+                    let unknown = found.iter().filter(|w| w.affinity.is_none()).count();
+                    ui.label(RichText::new(format!(
+                        "{excluded}/{} taskbars marked excluded · {unknown} unverified", found.len()
+                    )).size(10.5).color(if excluded == found.len() { SUCCESS } else { MUTED }));
+                }
+                Ok(_) => { ui.label(RichText::new("No Explorer taskbar window detected").size(10.5).color(WARNING)); }
+                Err(err) => { ui.label(RichText::new(format!("Taskbar discovery: {err}")).size(10.5).color(WARNING)); }
+            }
             ui.horizontal(|ui| {
                 if ui.add_enabled(!self.busy, egui::Button::new("Exclude from capture"))
                     .on_hover_text("May fail on some Windows versions. Never changes taskbar visibility on your monitor.")
