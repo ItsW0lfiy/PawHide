@@ -347,6 +347,7 @@ mod windows_ui {
             let protected = windows.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
             let all_protected = protected == windows.len();
             let shell = windows.iter().any(|w| w.pid == platform::shell_pid());
+            let supported = windows.iter().any(platform::can_protect_window);
             let expanded = self.expanded.contains(name);
             let count = windows.len();
             self.ensure_app_icon(name, windows[0].hwnd, windows[0].pid, ui.ctx());
@@ -360,15 +361,17 @@ mod windows_ui {
                             ui.add(egui::Label::new(RichText::new(name).size(12.3).strong().color(TEXT)).truncate())
                                 .on_hover_text(name);
                             let caption = if shell { "Explorer · expand to select a folder window".to_owned() }
+                                else if !supported { "Protected application · unsupported".to_owned() }
                                 else { format!("{protected}/{count} hidden · {count} window{}", if count == 1 { "" } else { "s" }) };
                             ui.label(RichText::new(caption).size(10.3).color(if protected > 0 { SUCCESS } else { MUTED }));
                         });
                         let action = if all_protected { "Show" } else { "Hide" };
-                        let result = ui.add_enabled(!self.busy && !shell, egui::Button::new(button_text(action, all_protected))
+                        let result = ui.add_enabled(!self.busy && !shell && supported, egui::Button::new(button_text(action, all_protected))
                             .fill(if all_protected { HOVER } else { SIDEBAR })
                             .stroke(egui::Stroke::new(1.0, if all_protected { OUTLINE } else { PURPLE_DIM }))
                             .min_size(egui::vec2(60.0, 27.0)));
                         if result.on_hover_text(if shell { "Select an individual Explorer folder window below (desktop/taskbar remain blocked)" }
+                            else if !supported { "PawHide cannot inject into this protected application" }
                             else if all_protected { "Restore capture of every window in this group" }
                             else { "Exclude all windows in this group from compatible capture" }).clicked() {
                             let selected = windows.iter().filter(|w| if all_protected { w.affinity != Some(0) } else { w.affinity != Some(EXCLUDED) })
