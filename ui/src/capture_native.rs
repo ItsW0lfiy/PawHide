@@ -158,7 +158,10 @@ unsafe fn readback(
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         texture.GetDesc(&mut desc);
         if desc.Width == 0 || desc.Height == 0 || desc.Width > 16384 || desc.Height > 16384 {
-            return Err(windows::core::Error::from_win32());
+            return Err(windows::core::Error::new(
+                windows::core::HRESULT(0x80070057u32 as i32),
+                "Invalid capture texture dimensions",
+            ));
         }
         if *dimensions != (desc.Width, desc.Height) {
             desc.Usage = D3D11_USAGE_STAGING;
