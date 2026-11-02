@@ -1,7 +1,7 @@
-use crate::{config, parse_hwnd};
+use crate::parse_hwnd;
 use anyhow::{Context, Result, bail, ensure};
 use dll_syringe::{Syringe, process::OwnedProcess};
-use std::{collections::BTreeMap, ffi::c_void, path::PathBuf};
+use std::{ffi::c_void, path::PathBuf};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE},
     System::Threading::{GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION},
@@ -83,48 +83,11 @@ pub fn resolve(target: &str) -> Result<Vec<Window>> {
     Ok(all.into_iter().filter(|w| w.exe.eq_ignore_ascii_case(&name)).collect())
 }
 
-fn state(a: Option<u32>) -> &'static str {
-    match a {
-        Some(EXCLUDED) => "Excluded",
-        Some(1) => "Blacked",
-        Some(0) => "Visible",
-        _ => "Unknown",
-    }
+pub fn state(a: Option<u32>) -> &'static str {
+    match a { Some(EXCLUDED) => "Excluded", Some(1) => "Blacked", Some(0) => "Visible", _ => "Unknown" }
 }
 
-fn short(input: &str, max: usize) -> String {
-    let count = input.chars().count();
-    if count <= max { input.to_string() }
-    else { format!("{}…", input.chars().take(max - 1).collect::<String>()) }
-}
-
-pub fn list(show_windows: bool, all: bool) -> Result<()> {
-    let found: Vec<Window> = windows()?.into_iter().filter(|w| all || !w.tool_window).collect();
-    if show_windows {
-        println!("{:<18} {:<12} {:<12} {}", "APPLICATION", "WINDOW", "CAPTURE", "TITLE");
-        for w in &found {
-            println!("{:<18} 0x{:<10X} {:<12} {}", short(&w.exe, 18), w.hwnd, state(w.affinity), short(&w.title, 72));
-        }
-        println!("\n{} windows shown", found.len());
-    } else {
-        let mut grouped: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
-        for w in &found {
-            let entry = grouped.entry(w.exe.clone()).or_default();
-            entry.0 += 1;
-            if w.affinity == Some(EXCLUDED) { entry.1 += 1; }
-            if w.affinity.is_none() { entry.2 += 1; }
-        }
-        println!("{:<26} {:>7} {:>10}", "APPLICATION", "WINDOWS", "EXCLUDED");
-        for (app, (total, excluded, unknown)) in &grouped {
-            let value = if *unknown > 0 { format!("{excluded}/{total} ?") } else { format!("{excluded}/{total}") };
-            println!("{:<26} {:>7} {:>10}", short(app, 26), total, value);
-        }
-        println!("\n{} applications, {} windows. Use --windows for details; '?' means an affinity could not be read.", grouped.len(), found.len());
-    }
-    Ok(())
-}
-
-fn shell_pid() -> u32 {
+pub fn shell_pid() -> u32 {
     let h = unsafe { GetShellWindow() };
     let mut pid = 0u32;
     if !h.is_null() { unsafe { GetWindowThreadProcessId(h, &mut pid) }; }
@@ -167,35 +130,3 @@ pub fn apply_window(w: &Window, protect: bool, allow_shell: bool) -> Result<bool
     }
 }
 
-pub fn change(target: &str, protect: bool, allow_shell: bool) -> Result<()> {
-    let chosen = resolve(target)?;
-    ensure!(!chosen.is_empty(), "no visible windows found for '{target}'");
-    if !target.starts_with("0x") && chosen.iter().any(|w| w.pid == shell_pid()) {
-        bail!("refusing blanket shell protection. Use a specific HWND with --allow-shell for experimental Explorer tests");
-    }
-    let mut good = 0usize;
-    let mut failure = 0usize;
-    for w in &chosen {
-        match apply_window(w, protect, allow_shell) {
-            Ok(true) => { println!("OK     {:<22} 0x{:X} {}", short(&w.exe, 22), w.hwnd, if protect { "Excluded" } else { "Visible" }); good += 1; },
-            Ok(false) => { eprintln!("UNKNOWN {:<22} 0x{:X} Windows affinity could not be read back", short(&w.exe, 22), w.hwnd); failure += 1; },
-            Err(e) => { eprintln!("FAILED {:<22} 0x{:X} {e:#}", short(&w.exe, 22), w.hwnd); failure += 1; },
-        }
-    }
-    println!("\n{good}/{} verified. {}", chosen.len(), if protect { "Capture exclusion requested" } else { "Capture visibility restored" });
-    ensure!(failure == 0, "{failure} window(s) failed or could not be verified");
-    Ok(())
-}
-
-pub fn show_status(target: Option<&str>) -> Result<()> {
-    let chosen = if let Some(target) = target { resolve(target)? } else { windows()?.into_iter().filter(|w| !w.tool_window).collect() };
-    if target.is_some() { ensure!(!chosen.is_empty(), "no visible windows match the selected target"); }
-    let (mut protected, mut visible, mut unknown) = (0, 0, 0);
-    for w in &chosen {
-        match w.affinity { Some(EXCLUDED) => protected += 1, Some(0) => visible += 1, _ => unknown += 1 }
-        if target.is_some() { println!("{:<20} 0x{:<9X} {:<10} {}", short(&w.exe, 20), w.hwnd, state(w.affinity), short(&w.title, 56)); }
-    }
-    println!("\nExcluded: {protected} | Visible: {visible} | Unknown/other: {unknown}");
-    println!("OS affinity is not proof that every Discord capture method respects exclusion.");
-    Ok(())
-}

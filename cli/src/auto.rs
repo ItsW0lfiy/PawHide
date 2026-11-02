@@ -1,4 +1,5 @@
-use crate::{AutoCommand, config, platform};
+use crate::AutoCommand;
+use pawhide_core::{config, platform};
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, fs::OpenOptions, os::windows::process::CommandExt, process::{Command, Stdio}, sync::{Mutex, OnceLock}, thread, time::{Duration, Instant}};
 use windows_sys::Win32::{
@@ -110,6 +111,14 @@ pub fn command(command: AutoCommand) -> Result<()> {
         AutoCommand::Start => start(),
         AutoCommand::Stop => stop(),
         AutoCommand::Run => run_monitor(),
+        AutoCommand::Sync => {
+            let cfg = config::load()?;
+            ensure!(!cfg.applications.is_empty(), "no AutoHide rules configured");
+            let mut retries = HashMap::new();
+            scan(&cfg, &mut retries, true)?;
+            println!("AutoHide rules applied to currently open windows");
+            Ok(())
+        },
     }
 }
 

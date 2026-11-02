@@ -15,7 +15,6 @@ pub fn normalize_exe(name: &str) -> Result<String> {
         !name.contains(['/', '\\', ':', '\0', '*', '?', '"', '<', '>', '|']),
         "use an executable name, not a path (example: PicView.exe)"
     );
-    ensure!(!name.chars().any(char::is_whitespace), "executable name cannot contain spaces");
     let value = name.to_ascii_lowercase();
     let value = if value.ends_with(".exe") { value } else { format!("{value}.exe") };
     // Prevent blanket injection into Explorer/system shell. Individual HWND
@@ -75,6 +74,7 @@ mod tests {
     fn normalizes_exe() {
         assert_eq!(normalize_exe("PicView.EXE").unwrap(), "picview.exe");
         assert_eq!(normalize_exe("floorp").unwrap(), "floorp.exe");
+        assert_eq!(normalize_exe("NVIDIA Overlay.exe").unwrap(), "nvidia overlay.exe");
         assert!(normalize_exe("C:\\PicView.exe").is_err());
         assert!(normalize_exe("explorer.exe").is_err());
         assert!(normalize_exe("").is_err());

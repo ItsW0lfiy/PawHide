@@ -1,9 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["cli", "agent"]
+members = ["core", "cli", "agent", "ui"]
+# CLI is the development priority; BOTH executables participate in a default build.
+default-members = ["core", "cli", "agent", "ui"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.88"

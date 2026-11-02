@@ -10,15 +10,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt, clippy
-      - name: Build
-        run: cargo build --release --workspace
+      - name: Build default workspace (CLI + UI)
+        run: cargo build --release
       - name: Unit tests
         run: cargo test --workspace
-      - name: Package
+      - name: Package portable executables
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target/release/pawhide.exe, target/release/pawhide_agent.dll dist/
+          Copy-Item target/release/pawhide.exe, target/release/pawhide_agent.dll, target/release/PawHideUI.exe dist/
       - uses: actions/upload-artifact@v4
         with:
           name: PawHide-Windows-x64
