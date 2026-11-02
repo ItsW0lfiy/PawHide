@@ -140,6 +140,33 @@ unsafe extern "system" fn win_event_callback(
     }
 }
 
+/// The long-running AutoHide monitor must never perform DLL injection in its
+/// own thread. A failing app can otherwise freeze monitoring and stop signals.
+fn protect_bounded(w: &platform::Window) -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut child = Command::new(exe)
+        .args(["hide", &format!("0x{:X}", w.hwnd)])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().context("could not launch protection helper")?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait()? {
+            Some(_) => {
+                let output = child.wait_with_output()?;
+                if output.status.success() { return Ok(()); }
+                let error = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("{}", error.trim());
+            }
+            None if start.elapsed() >= Duration::from_secs(8) => {
+                let _ = child.kill(); let _ = child.wait();
+                anyhow::bail!("protection timed out after 8s; remote state unverified");
+            }
+            None => thread::sleep(Duration::from_millis(50)),
+        }
+    }
+}
+
 fn scan(cfg: &config::Config, retries: &mut HashMap<(usize, u32), Instant>, log_failures: bool) -> Result<()> {
     let now = Instant::now();
     let all = platform::windows()?;
@@ -147,11 +174,12 @@ fn scan(cfg: &config::Config, retries: &mut HashMap<(usize, u32), Instant>, log_
     for w in all {
         if !cfg.applications.iter().any(|name| w.exe.eq_ignore_ascii_case(name)) { continue; }
         if w.affinity == Some(platform::EXCLUDED) { retries.remove(&(w.hwnd, w.pid)); continue; }
-        if retries.get(&(w.hwnd, w.pid)).is_some_and(|at| now.duration_since(*at) < Duration::from_secs(3)) { continue; }
+        if !platform::can_protect_window(&w) { continue; }
+        // Do not continually re-inject into uncooperative processes.
+        if retries.get(&(w.hwnd, w.pid)).is_some_and(|at| now.duration_since(*at) < Duration::from_secs(120)) { continue; }
         retries.insert((w.hwnd, w.pid), now);
-        match platform::apply_window(&w, true, false) {
-            Ok(true) => { retries.remove(&(w.hwnd, w.pid)); },
-            Ok(false) => { if log_failures { eprintln!("WARN {} 0x{:X}: exclusion requested but Windows readback is unavailable", w.exe, w.hwnd); } },
+        match protect_bounded(&w) {
+            Ok(()) => { retries.remove(&(w.hwnd, w.pid)); },
             Err(e) => { if log_failures { eprintln!("ERROR {} 0x{:X}: {e:#}", w.exe, w.hwnd); } },
         }
     }

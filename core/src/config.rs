@@ -6,6 +6,8 @@ use std::{fs, path::PathBuf};
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub applications: Vec<String>,
+    /// Canonical directories; protect only when an application reports an exact file path.
+    pub folders: Vec<PathBuf>,
 }
 
 pub fn normalize_exe(name: &str) -> Result<String> {
@@ -46,6 +48,10 @@ pub fn load() -> Result<Config> {
     }
     sorted.sort();
     cfg.applications = sorted;
+    // Saved folders may be unavailable (removable/network drives). Keep them
+    // configured; document notifications fail closed until they are reachable.
+    cfg.folders.sort();
+    cfg.folders.dedup();
     Ok(cfg)
 }
 

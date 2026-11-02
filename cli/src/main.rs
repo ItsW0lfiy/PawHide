@@ -55,6 +55,8 @@ enum Command {
     Config { #[command(subcommand)] command: ConfigCommand },
     /// Read monitor errors and activity.
     Logs { #[command(subcommand)] command: Option<LogsCommand> },
+    /// Manage protected directories and document-open notifications.
+    Folders { #[command(subcommand)] command: FolderCommand },
     /// Print version without additional technical details.
     Version,
 }
@@ -67,6 +69,16 @@ enum AutoCommand {
     /// Apply configured rules to currently open windows immediately.
     Sync,
     #[command(hide=true)] Run,
+}
+
+#[derive(Subcommand, Debug)]
+enum FolderCommand {
+    Add { path: std::path::PathBuf },
+    Remove { path: std::path::PathBuf },
+    List,
+    Match { path: std::path::PathBuf },
+    /// For cooperating apps (e.g. Wolfmark): notify a verified HWND and opened file.
+    Notify { hwnd: String, path: std::path::PathBuf },
 }
 
 #[derive(Subcommand, Debug)]
@@ -97,6 +109,7 @@ fn run() -> Result<()> {
             Startup {command} => startup::command(command),
             Config {command} => commands::config(command),
             Logs {command} => commands::logs(command.unwrap_or(LogsCommand::Show { lines:30 })),
+            Folders {command} => commands::folders(command),
             Version => { println!("PawHide {}", env!("CARGO_PKG_VERSION")); Ok(()) },
         };
     }
@@ -116,6 +129,11 @@ mod tests {
     fn auto_alias_is_just_auto() {
         assert!(Cli::try_parse_from(["pawhide","auto","status"]).is_ok());
         assert!(Cli::try_parse_from(["pawhide","autohide","status"]).is_err());
+    }
+    #[test]
+    fn folder_subcommands() {
+        assert!(Cli::try_parse_from(["pawhide","folders","add","C:\\Private"]).is_ok());
+        assert!(Cli::try_parse_from(["pawhide","folders","notify","0xABCD","C:\\Private\\doc.md"]).is_ok());
     }
     #[test]
     fn manual_title_and_pick_syntax() {

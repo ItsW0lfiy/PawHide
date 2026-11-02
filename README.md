@@ -115,3 +115,15 @@ No WebView2, Electron, network API, telemetry or persistent server. A local IPC 
 Build with `cargo build --release` (the CLI, agent, **and** UI are default members). `cargo build --release -p pawhide` builds only the CLI and its dependencies; `-p pawhide-ui` builds just the UI and its dependencies. The installer/distribution must put `pawhide.exe`, `pawhide_agent.dll`, and optionally `PawHideUI.exe` in the same folder for shared AutoHide controls.
 
 **Validation:** Windows-specific GUI layout, icon extraction and resource compilation require testing on Windows. Source parsing on Linux is not equivalent to a Windows build or real capture test.
+
+
+## v0.3.2 development: bounded protection, Explorer, folders
+
+- **GUI single-instance:** launching PawHideUI again raises the existing window rather than spawning another GUI.
+- **Timeout / failure handling:** manual GUI protection and AutoHide use short-lived CLI helpers with an eight-second timeout. This keeps the manager/monitor responsive if a target stalls DLL injection. A timed-out remote operation may still be pending, so **do not interpret a timeout as confirmed protection**. AutoHide waits two minutes before retrying a failed HWND.
+- **Roblox:** DLL injection into RobloxPlayerBeta.exe is blocked deliberately; PawHide does not bypass anti-tamper systems and cannot protect that window using the current technique.
+- **Explorer:** the GUI allows selecting individual file Explorer windows (CabinetWClass/ExploreWClass), while all-Explorer group protection remains disabled. Desktop/taskbar windows are blocked. Folder windows may still refuse injection; errors are reported safely.
+- **Icons:** try each window's own icon before its executable icon, with fallback for classic GDI icons lacking a usable alpha channel.
+- **Protected-folder rules (foundation):** configure canonical folder paths with `pawhide folders add "D:\Private"`, `remove`, `list`, and `match "D:\Private\file.md"`, or the **Folders** GUI page. A cooperating application can invoke `pawhide folders notify 0xHWND "D:\Private\file.md"` after opening a document. If the path is inside a configured folder, PawHide attempts to exclude **that window**, even if the application is absent from AutoHide rules. Rules are path-boundary checked, resolve symlinks, and never infer a file's location from just its window title. **Wolfmark is not yet connected to this notification interface, so folder rules are not globally automatic.** The notification only adds protection; moving out of a folder doesn't automatically unhide an already protected window.
+
+**Windows capture caveat:** even verified affinity is best-effort and cannot guarantee secrecy against every capture method. Test in your own screen-share before depending on it.

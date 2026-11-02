@@ -1,6 +1,6 @@
-use crate::{ConfigCommand, LogsCommand, presentation as display};
+use crate::{ConfigCommand, FolderCommand, LogsCommand, presentation as display};
 use anyhow::{Context, Result, bail, ensure};
-use pawhide_core::{config,platform::{self, Window, EXCLUDED}};
+use pawhide_core::{config,folders,platform::{self, Window, EXCLUDED}};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, io::{self, Write}, fs, process::Command, thread, time::Duration};
 
@@ -116,6 +116,51 @@ pub fn inspect(target:&str,json_output:bool)->Result<()> {
         println!("  PID:         {}",w.pid);
         println!("  Capture:     {}",platform::state(w.affinity));
         println!("  Tool window: {}",w.tool_window);
+    }
+    Ok(())
+}
+
+pub fn folders(command: FolderCommand) -> Result<()> {
+    match command {
+        FolderCommand::Add { path } => {
+            let canonical = folders::validated_folder(&path)?;
+            let mut cfg = config::load()?;
+            if !cfg.folders.contains(&canonical) { cfg.folders.push(canonical.clone()); config::save(&cfg)?; }
+            println!("Protected folder registered: {}", canonical.display());
+            println!("Cooperating applications must call `pawhide folders notify <HWND> <FILE>` when opening a document. Filename/title guessing is deliberately disabled.");
+        }
+        FolderCommand::Remove { path } => {
+            let canonical = folders::validated_folder(&path)?;
+            let mut cfg = config::load()?;
+            cfg.folders.retain(|folder| folder != &canonical);
+            config::save(&cfg)?;
+            println!("Folder rule removed: {}", canonical.display());
+        }
+        FolderCommand::List => {
+            let cfg = config::load()?;
+            if cfg.folders.is_empty() { println!("No protected folders registered."); }
+            else { for folder in &cfg.folders { println!("{}", folder.display()); } }
+        }
+        FolderCommand::Match { path } => {
+            let cfg = config::load()?;
+            match folders::match_document(&cfg.folders, &path)? {
+                Some(folder) => println!("Protected by {}", folder.display()),
+                None => println!("Not protected by a folder rule"),
+            }
+        }
+        FolderCommand::Notify { hwnd, path } => {
+            let handle = pawhide_core::parse_hwnd(&hwnd)?.context("use 0x... HWND")?;
+            let cfg = config::load()?;
+            if let Some(folder) = folders::match_document(&cfg.folders, &path)? {
+                let window = platform::resolve(&hwnd)?.into_iter().find(|w| w.hwnd == handle)
+                    .context("window handle is not a visible top-level window")?;
+                ensure!(platform::can_protect_window(&window), "this application window cannot be protected");
+                ensure!(platform::apply_window(&window, true, false)?, "could not verify capture exclusion");
+                println!("Protected {} because document is inside {}", window.exe, folder.display());
+            } else {
+                println!("No matching protected folder; left capture state unchanged");
+            }
+        }
     }
     Ok(())
 }

@@ -6,17 +6,22 @@ fn main() { eprintln!("PawHideUI requires Windows."); }
 
 #[cfg(windows)]
 mod icons;
+#[cfg(windows)]
+mod single_instance;
+#[cfg(windows)]
+mod operations;
 
 #[cfg(windows)]
 mod windows_ui {
     use eframe::egui::{self, Color32, RichText};
-    use pawhide_core::{config, platform::{self, Window, EXCLUDED}};
+    use pawhide_core::{config, folders, platform::{self, Window, EXCLUDED}};
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
         os::windows::process::CommandExt,
         sync::{mpsc::{self, Receiver, Sender}, Arc},
         thread,
         time::{Duration, Instant},
+        path::PathBuf,
     };
     use crate::icons::{self, IconPixels};
 
@@ -35,7 +40,7 @@ mod windows_ui {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Page { Windows, Auto, Settings }
+    enum Page { Windows, Auto, Folders, Settings }
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Filter { All, Hidden }
@@ -43,10 +48,12 @@ mod windows_ui {
     pub struct App {
         windows: Vec<Window>,
         rules: Vec<String>,
+        folders: Vec<PathBuf>,
         page: Page,
         filter: Filter,
         search: String,
         new_rule: String,
+        new_folder: String,
         expanded: HashSet<String>,
         note: String,
         note_error: bool,
@@ -58,6 +65,7 @@ mod windows_ui {
         icon_receiver: Receiver<(String, Option<IconPixels>)>,
         icon_pending: HashSet<String>,
         app_icons: HashMap<String, Option<egui::TextureHandle>>,
+        icon_failed_at: HashMap<String, Instant>,
         logo: egui::TextureHandle,
     }
 
@@ -92,12 +100,12 @@ mod windows_ui {
             let (icon_sender, icon_receiver) = mpsc::channel();
             let logo = cc.egui_ctx.load_texture("pawhide-brand", logo_image(), egui::TextureOptions::LINEAR);
             let mut app = Self {
-                windows: Vec::new(), rules: Vec::new(), page: Page::Windows,
-                filter: Filter::All, search: String::new(), new_rule: String::new(),
+                windows: Vec::new(), rules: Vec::new(), folders: Vec::new(), page: Page::Windows,
+                filter: Filter::All, search: String::new(), new_rule: String::new(), new_folder: String::new(),
                 expanded: HashSet::new(), note: String::new(), note_error: false,
                 busy: false, last_refresh: Instant::now() - Duration::from_secs(10),
                 completion_tx, completion_rx, icon_sender, icon_receiver,
-                icon_pending: HashSet::new(), app_icons: HashMap::new(), logo,
+                icon_pending: HashSet::new(), app_icons: HashMap::new(), icon_failed_at: HashMap::new(), logo,
             };
             app.refresh();
             app
@@ -109,19 +117,21 @@ mod windows_ui {
                 Err(error) => { self.note = format!("Window discovery failed: {error:#}"); self.note_error = true; }
             }
             match config::load() {
-                Ok(cfg) => self.rules = cfg.applications,
+                Ok(cfg) => { self.rules = cfg.applications; self.folders = cfg.folders; },
                 Err(error) => { self.note = format!("Configuration error: {error:#}"); self.note_error = true; }
             }
             self.last_refresh = Instant::now();
         }
 
-        fn ensure_app_icon(&mut self, app: &str, pid: u32, ctx: &egui::Context) {
+        fn ensure_app_icon(&mut self, app: &str, hwnd: usize, pid: u32, ctx: &egui::Context) {
             let key = app.to_ascii_lowercase();
-            if self.app_icons.contains_key(&key) || !self.icon_pending.insert(key.clone()) { return; }
+            if self.app_icons.get(&key).is_some_and(|icon| icon.is_some()) { return; }
+            if self.icon_failed_at.get(&key).is_some_and(|at| at.elapsed() < Duration::from_secs(30)) { return; }
+            if !self.icon_pending.insert(key.clone()) { return; }
             let sender = self.icon_sender.clone();
             let ctx = ctx.clone();
             thread::spawn(move || {
-                let result = icons::from_pid(pid);
+                let result = icons::from_window(hwnd, pid);
                 let _ = sender.send((key, result));
                 ctx.request_repaint();
             });
@@ -150,10 +160,9 @@ mod windows_ui {
                 let mut passed = 0;
                 let mut failures = Vec::new();
                 for w in windows {
-                    match platform::apply_window(&w, hide, false) {
-                        Ok(true) => passed += 1,
-                        Ok(false) => failures.push(format!("{}: affinity unreadable", w.exe)),
-                        Err(err) => failures.push(format!("{}: {err:#}", w.exe)),
+                    match crate::operations::apply_bounded(&w, hide, Duration::from_secs(8)) {
+                        Ok(()) => passed += 1,
+                        Err(err) => failures.push(format!("{} ({}): {err}", w.exe, w.title)),
                     }
                 }
                 let action = if hide { "protected" } else { "restored" };
@@ -223,6 +232,62 @@ mod windows_ui {
             self.refresh();
         }
 
+        fn add_folder(&mut self) {
+            let result: Result<String, String> = (|| {
+                let folder = folders::validated_folder(std::path::Path::new(self.new_folder.trim()))
+                    .map_err(|e| e.to_string())?;
+                let mut cfg = config::load().map_err(|e| e.to_string())?;
+                if !cfg.folders.contains(&folder) { cfg.folders.push(folder.clone()); }
+                config::save(&cfg).map_err(|e| e.to_string())?;
+                self.new_folder.clear();
+                Ok(format!("Folder registered: {}", folder.display()))
+            })();
+            match result {
+                Ok(note) => { self.note = note; self.note_error = false; }
+                Err(error) => { self.note = error; self.note_error = true; }
+            }
+            self.refresh();
+        }
+        fn remove_folder(&mut self, folder: &PathBuf) {
+            match config::load() {
+                Ok(mut cfg) => {
+                    cfg.folders.retain(|f| f != folder);
+                    match config::save(&cfg) {
+                        Ok(()) => { self.note = "Folder rule removed".into(); self.note_error = false; }
+                        Err(e) => { self.note = e.to_string(); self.note_error = true; }
+                    }
+                }
+                Err(e) => { self.note = e.to_string(); self.note_error = true; }
+            }
+            self.refresh();
+        }
+        fn folder_page(&mut self, ui: &mut egui::Ui) {
+            Self::heading(ui, "Folders", "Document-path protection rules");
+            ui.horizontal(|ui| {
+                let available = (ui.available_width() - 70.0).max(120.0);
+                ui.add_sized([available, 29.0], egui::TextEdit::singleline(&mut self.new_folder)
+                    .hint_text(r"D:\Private\Work"));
+                if ui.add_sized([60.0, 29.0], egui::Button::new("Add")).clicked() {
+                    self.add_folder();
+                }
+            });
+            ui.add_space(10.0);
+            if self.folders.is_empty() { ui.label(RichText::new("No protected folders yet.").color(MUTED)); }
+            for folder in self.folders.clone() {
+                ui.horizontal(|ui| {
+                    let width = (ui.available_width() - 75.0).max(100.0);
+                    ui.add_sized([width, 29.0], egui::Label::new(
+                        RichText::new(folder.display().to_string()).size(11.0).color(TEXT)).truncate())
+                        .on_hover_text(folder.display().to_string());
+                    if ui.button("Remove").clicked() { self.remove_folder(&folder); }
+                });
+                ui.separator();
+            }
+            ui.add_space(9.0);
+            ui.label(RichText::new("Important: a folder rule activates only when an application reports the exact opened file and window handle. It cannot determine document paths from titles, and Wolfmark integration is not connected yet.")
+                .color(WARNING).size(11.0));
+        }
+
         fn titlebar(&mut self, ctx: &egui::Context) {
             egui::TopBottomPanel::top("window-title")
                 .exact_height(40.0)
@@ -252,7 +317,7 @@ mod windows_ui {
                 .show(ctx, |ui| {
                     ui.add_space(12.0);
                     for (page, label) in [
-                        (Page::Windows, "Windows"), (Page::Auto, "AutoHide"), (Page::Settings, "Settings"),
+                        (Page::Windows, "Windows"), (Page::Auto, "AutoHide"), (Page::Folders, "Folders"), (Page::Settings, "Settings"),
                     ] {
                         let selected = self.page == page;
                         let color = if selected { TEXT } else { MUTED };
@@ -284,7 +349,7 @@ mod windows_ui {
             let shell = windows.iter().any(|w| w.pid == platform::shell_pid());
             let expanded = self.expanded.contains(name);
             let count = windows.len();
-            self.ensure_app_icon(name, windows[0].pid, ui.ctx());
+            self.ensure_app_icon(name, windows[0].hwnd, windows[0].pid, ui.ctx());
             egui::Frame::NONE.fill(PANEL).stroke(egui::Stroke::new(1.0, OUTLINE)).corner_radius(6)
                 .inner_margin(egui::Margin::symmetric(9, 7)).show(ui, |ui| {
                     let width = ui.available_width();
@@ -294,7 +359,7 @@ mod windows_ui {
                         ui.allocate_ui_with_layout(egui::vec2(name_width, 37.0), egui::Layout::top_down(egui::Align::LEFT), |ui| {
                             ui.add(egui::Label::new(RichText::new(name).size(12.3).strong().color(TEXT)).truncate())
                                 .on_hover_text(name);
-                            let caption = if shell { "Windows shell · restricted".to_owned() }
+                            let caption = if shell { "Explorer · expand to select a folder window".to_owned() }
                                 else { format!("{protected}/{count} hidden · {count} window{}", if count == 1 { "" } else { "s" }) };
                             ui.label(RichText::new(caption).size(10.3).color(if protected > 0 { SUCCESS } else { MUTED }));
                         });
@@ -303,7 +368,7 @@ mod windows_ui {
                             .fill(if all_protected { HOVER } else { SIDEBAR })
                             .stroke(egui::Stroke::new(1.0, if all_protected { OUTLINE } else { PURPLE_DIM }))
                             .min_size(egui::vec2(60.0, 27.0)));
-                        if result.on_hover_text(if shell { "Shell protection is blocked by default" }
+                        if result.on_hover_text(if shell { "Select an individual Explorer folder window below (desktop/taskbar remain blocked)" }
                             else if all_protected { "Restore capture of every window in this group" }
                             else { "Exclude all windows in this group from compatible capture" }).clicked() {
                             let selected = windows.iter().filter(|w| if all_protected { w.affinity != Some(0) } else { w.affinity != Some(EXCLUDED) })
@@ -320,6 +385,7 @@ mod windows_ui {
                         ui.add_space(6.0);
                         for window in windows {
                             let hidden = window.affinity == Some(EXCLUDED);
+                            let allowed = platform::can_protect_window(window);
                             let (state, color) = match window.affinity {
                                 Some(EXCLUDED) => ("Hidden", SUCCESS),
                                 Some(0) => ("Visible", MUTED),
@@ -335,7 +401,7 @@ mod windows_ui {
                                     .on_hover_text(format!("{}\nPID {} · HWND 0x{:X}", window.title, window.pid, window.hwnd));
                                 ui.label(RichText::new(state).size(10.0).color(color));
                                 let action = if hidden { "Show" } else { "Hide" };
-                                if ui.add_enabled(!self.busy && !shell, egui::Button::new(
+                                if ui.add_enabled(!self.busy && allowed, egui::Button::new(
                                     RichText::new(action).size(10.0).color(PURPLE))
                                     .fill(HOVER).stroke(egui::Stroke::NONE).min_size(egui::vec2(43.0, 21.0)))
                                     .clicked() {
@@ -376,6 +442,7 @@ mod windows_ui {
                 }
             }
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 if groups.is_empty() { ui.add_space(12.0); ui.label(RichText::new("No matching applications").color(MUTED)); }
                 for (name, mut group) in groups {
                     group.sort_by(|a, b| a.title.cmp(&b.title));
@@ -448,6 +515,8 @@ mod windows_ui {
             }
             while let Ok((key, image)) = self.icon_receiver.try_recv() {
                 self.icon_pending.remove(&key);
+                if image.is_none() { self.icon_failed_at.insert(key.clone(), Instant::now()); }
+                else { self.icon_failed_at.remove(&key); }
                 let handle = image.map(|pixels| ctx.load_texture(
                     format!("app-icon-{key}"),
                     egui::ColorImage::from_rgba_unmultiplied([pixels.width, pixels.height], &pixels.rgba),
@@ -478,6 +547,7 @@ mod windows_ui {
                 .show(ctx, |ui| match self.page {
                     Page::Windows => self.windows_page(ui),
                     Page::Auto => self.auto_page(ui),
+                    Page::Folders => self.folder_page(ui),
                     Page::Settings => self.settings_page(ui),
                 });
             ctx.request_repaint_after(Duration::from_secs(2));
@@ -507,4 +577,7 @@ mod windows_ui {
 }
 
 #[cfg(windows)]
-fn main() -> eframe::Result<()> { windows_ui::run() }
+fn main() -> eframe::Result<()> {
+    let Some(_instance) = single_instance::acquire() else { return Ok(()); };
+    windows_ui::run()
+}

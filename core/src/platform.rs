@@ -7,7 +7,7 @@ use windows_sys::Win32::{
     System::Threading::{GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION},
     UI::WindowsAndMessaging::{
         EnumWindows, GetAncestor, GetShellWindow, GetWindowDisplayAffinity,
-        GetWindowLongW, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+        GetWindowLongW, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, GetClassNameW,
         IsWindow, IsWindowVisible, GA_ROOT, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
     },
 };
@@ -94,6 +94,22 @@ pub fn shell_pid() -> u32 {
     pid
 }
 
+/// Explorer may host the desktop and file windows in the same process.
+/// Only real folder-window classes are eligible. Never target taskbar/desktop.
+pub fn is_explorer_folder(w: &Window) -> bool {
+    if !w.exe.eq_ignore_ascii_case("explorer.exe") { return false; }
+    let mut name = [0u16; 128];
+    let n = unsafe { GetClassNameW(handle(w.hwnd), name.as_mut_ptr(), name.len() as i32) };
+    if n == 0 { return false; }
+    matches!(String::from_utf16_lossy(&name[..n as usize]).as_str(), "CabinetWClass" | "ExploreWClass")
+}
+
+pub fn can_protect_window(w: &Window) -> bool {
+    if w.pid == unsafe { GetCurrentProcessId() } { return false; }
+    if w.exe.eq_ignore_ascii_case("RobloxPlayerBeta.exe") { return false; }
+    w.pid != shell_pid() || is_explorer_folder(w)
+}
+
 fn agent_path() -> Result<PathBuf> {
     let path = std::env::current_exe()?.with_file_name("pawhide_agent.dll");
     ensure!(path.is_file(), "pawhide_agent.dll is missing beside pawhide.exe; build the complete workspace");
@@ -110,8 +126,11 @@ pub fn apply_window(w: &Window, protect: bool, allow_shell: bool) -> Result<bool
     let expected = if protect { EXCLUDED } else { 0 };
     if affinity(w.hwnd) == Some(expected) { return Ok(true); }
     ensure!(w.pid != unsafe { GetCurrentProcessId() }, "cannot inject into PawHide itself");
-    if w.pid == shell_pid() && !allow_shell {
-        bail!("Windows shell protection is blocked (Explorer shares a process with desktop/taskbar). Select a specific handle and --allow-shell for experimental testing");
+    // Roblox is protected by anti-tamper. Do not attempt to bypass or inject.
+    ensure!(!w.exe.eq_ignore_ascii_case("RobloxPlayerBeta.exe"),
+        "Roblox does not permit PawHide DLL injection; window protection is unsupported");
+    if w.pid == shell_pid() && !allow_shell && !is_explorer_folder(w) {
+        bail!("Windows desktop/taskbar protection is blocked; only individual Explorer folder windows are supported");
     }
     let process = OwnedProcess::from_pid(w.pid)
         .with_context(|| format!("cannot access {} (PID {}): privileges, architecture or security restrictions", w.exe, w.pid))?;
