@@ -188,13 +188,13 @@ the DLL-injection path and does not change local window visibility.
 
 - Select **Screen 1 / Screen 2 / ...** independently; no combined desktop
   region or duplicate preview stacked on top of other PawHide controls.
-- Start / Pause / Resume and refresh physical monitor selection.
+- Start / Pause / Resume, automatic monitor rediscovery every three seconds, and stable selection by display name (no Refresh button).
 - Target 60 FPS, show measured actual FPS and drop old frames instead of
   buffering them (static displays may legitimately produce fewer frames).
 - Preview scales to at most 1280×720 before uploading to the UI.
-- **Cursor on by default**, composed by WGC rather than separately drawn by
-  FFmpeg or egui. Turn it off in the tester if a particular display driver
-  still shows pointer artifacts.
+- **Cursor off by default** to reduce flicker and duplicate-cursor artifacts; enable Windows' native WGC cursor composition with the Cursor toggle if desired. No FFmpeg or egui pointer overlay is added.
+  (Previously the preview started with cursor capture enabled.)
+  If the display driver still shows pointer artifacts.
 - If there are multiple monitors, position PawHide on the other monitor to
   avoid the recursive preview effect.
 - The GUI starts larger (1080×700), can be resized (880×580 to 1600×1000),
