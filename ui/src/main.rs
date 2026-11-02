@@ -5,6 +5,10 @@
 fn main() { eprintln!("PawHideUI requires Windows."); }
 
 #[cfg(windows)]
+mod capture_native;
+#[cfg(windows)]
+mod capture_test;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod single_instance;
@@ -24,6 +28,7 @@ mod windows_ui {
         path::PathBuf,
     };
     use crate::icons::{self, IconPixels};
+    use crate::capture_test::CaptureTest;
 
     const BACKGROUND: Color32 = Color32::from_rgb(17, 15, 22);
     const SIDEBAR: Color32 = Color32::from_rgb(23, 20, 29);
@@ -40,7 +45,7 @@ mod windows_ui {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Page { Windows, Auto, Folders, Settings }
+    enum Page { Windows, Auto, Folders, Capture, Settings }
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Filter { All, Hidden }
@@ -68,6 +73,7 @@ mod windows_ui {
         app_icons: HashMap<String, Option<egui::TextureHandle>>,
         icon_failed_at: HashMap<String, Instant>,
         logo: egui::TextureHandle,
+        capture_test: CaptureTest,
     }
 
     fn logo_image() -> egui::ColorImage {
@@ -107,6 +113,7 @@ mod windows_ui {
                 busy: false, last_refresh: Instant::now() - Duration::from_secs(10),
                 completion_tx, completion_rx, icon_sender, icon_receiver,
                 icon_pending: HashSet::new(), app_icons: HashMap::new(), icon_failed_at: HashMap::new(), logo,
+                capture_test: CaptureTest::new(),
             };
             app.refresh();
             app
@@ -318,14 +325,18 @@ mod windows_ui {
                 .show(ctx, |ui| {
                     ui.add_space(12.0);
                     for (page, label) in [
-                        (Page::Windows, "Windows"), (Page::Auto, "AutoHide"), (Page::Folders, "Folders"), (Page::Settings, "Settings"),
+                        (Page::Windows, "Windows"), (Page::Auto, "AutoHide"), (Page::Folders, "Folders"),
+                        (Page::Capture, "Capture Test"), (Page::Settings, "Settings"),
                     ] {
                         let selected = self.page == page;
                         let color = if selected { TEXT } else { MUTED };
                         let fill = if selected { PURPLE_DIM } else { SIDEBAR };
                         if ui.add_sized([ui.available_width(), 31.0], egui::Button::new(
                             RichText::new(label).size(12.0).color(color)).fill(fill).stroke(egui::Stroke::NONE)
-                        ).clicked() { self.page = page; }
+                        ).clicked() {
+                            if self.page == Page::Capture && page != Page::Capture { self.capture_test.stop(); }
+                            self.page = page;
+                        }
                         ui.add_space(4.0);
                     }
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -596,6 +607,7 @@ mod windows_ui {
                     Page::Windows => self.windows_page(ui),
                     Page::Auto => self.auto_page(ui),
                     Page::Folders => self.folder_page(ui),
+                    Page::Capture => self.capture_test.ui(ui, ctx),
                     Page::Settings => self.settings_page(ui),
                 });
             ctx.request_repaint_after(Duration::from_secs(2));
@@ -611,11 +623,11 @@ mod windows_ui {
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_title("PawHide")
-                .with_inner_size([730.0, 505.0])
-                .with_min_inner_size([730.0, 505.0])
-                .with_max_inner_size([730.0, 505.0])
+                .with_inner_size([1080.0, 700.0])
+                .with_min_inner_size([880.0, 580.0])
+                .with_max_inner_size([1600.0, 1000.0])
                 .with_maximize_button(false)
-                .with_resizable(false)
+                .with_resizable(true)
                 .with_decorations(false)
                 .with_icon(Arc::new(icon)),
             ..Default::default()
