@@ -140,3 +140,39 @@ Build with `cargo build --release` (the CLI, agent, **and** UI are default membe
 - **Portable:** pushing a `v*` tag triggers the Windows release pipeline. It produces `PawHide-Windows-x64.zip`, its SHA-256 file, and `PawHide-Online-Setup.exe`; normal pushes build and upload portable workflow artifacts. **Do not publish a tag until the native Windows build and behavior have been tested.**
 
 Both GUI and CLI are default Cargo workspace members and are included in the portable distribution. The online setup requires the network; there is intentionally **no full offline installer**.
+
+
+## Capture-only taskbar experiment (not a release guarantee)
+
+PawHide's invariant: **never hide/minimize/reposition a window locally, change its
+task-switcher membership, or change taskbar auto-hide settings**. Protection
+applies only to capture paths that honor Windows display affinity.
+
+New explicit opt-in experiment (CLI-first; also under GUI Settings):
+
+```powershell
+pawhide capture taskbar status
+pawhide capture taskbar hide
+pawhide capture taskbar show
+```
+
+This enumerates actual `Shell_TrayWnd` / `Shell_SecondaryTrayWnd` top-level
+windows owned by Explorer, including titleless taskbar windows omitted by
+normal window discovery. It attempts `WDA_EXCLUDEFROMCAPTURE` **only on these
+handles**, without changing taskbar visibility or user settings. The operation
+injects the agent into Explorer, so it can fail or destabilize the shell; it
+is **not automatically enabled**, and its Windows/Discord behavior must be
+verified on a test screen share. Use `show` to undo. A reported success only
+confirms Windows affinity readback, not that Discord hides it.
+
+**Alt+Tab/Win+Tab:** The native Windows switcher and Task View may
+include protected app names or previews. WDA is not a general viewer-only
+filter for system-generated UI; PawHide must not alter local switcher/window
+styles to pretend otherwise. Discord's native capture output cannot be
+arbitrarily rewritten by PawHide. No claim of viewer-only switcher filtering
+is made in this development version. A future app-owned capture mirror would
+be a distinct capture mode, not an invisible modification of a Discord stream.
+
+**Roblox fullscreen:** This revision does not automatically toggle taskbar
+capture exclusion based on Roblox. The explicit taskbar test comes first;
+otherwise automatic Explorer injection would be unsafe and unverified.
