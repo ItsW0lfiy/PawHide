@@ -238,7 +238,7 @@ mod windows_ui {
                     ui.label(RichText::new(&self.note).color(MUTED));
                 });
             });
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(BG).inner_margin(24.0)).show(ctx,|ui|{
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(BG).inner_margin(egui::Margin::same(24))).show(ctx,|ui|{
                 match self.page {
                     Page::Windows=>self.windows_page(ui),
                     Page::AutoHide=>self.auto_page(ui),
