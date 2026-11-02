@@ -66,7 +66,7 @@ impl CaptureTest {
         let result = monitors();
         let error = result.as_ref().err().cloned();
         Self {
-            monitors: result.unwrap_or_default(), selected: 0, cursor: false,
+            monitors: result.unwrap_or_default(), selected: 0, cursor: true,
             session: None, texture: None, error,
             last_count: 0, last_check: Instant::now(), fps: 0.0,
         }
@@ -112,7 +112,7 @@ impl CaptureTest {
                 }
             }
             if ui.checkbox(&mut self.cursor, "Cursor").on_hover_text(
-                "Off by default to avoid pointer doubling/flicker. When enabled Windows captures the cursor natively."
+                "Windows draws the cursor inside the captured frame (no second software cursor). Disable if your display driver still shows artifacts."
             ).changed() { restart = true; }
             ui.label(RichText::new(format!("{TARGET_FPS} FPS target")).color(Color32::GRAY).small());
         });
