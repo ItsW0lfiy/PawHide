@@ -1,263 +1,510 @@
-//! Optional native PawHide desktop manager (no WebView or Electron).
+//! Optional native PawHide manager. CLI and DLL agent remain independent.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(not(windows))]
-fn main() { eprintln!("PawHideUI is available on Windows only."); }
+fn main() { eprintln!("PawHideUI requires Windows."); }
+
+#[cfg(windows)]
+mod icons;
 
 #[cfg(windows)]
 mod windows_ui {
     use eframe::egui::{self, Color32, RichText};
     use pawhide_core::{config, platform::{self, Window, EXCLUDED}};
-    use std::{collections::BTreeMap, sync::mpsc::{self, Receiver, Sender}, thread, time::{Duration, Instant}};
-    use std::os::windows::process::CommandExt;
+    use std::{
+        collections::{BTreeMap, HashMap, HashSet},
+        os::windows::process::CommandExt,
+        sync::{mpsc::{self, Receiver, Sender}, Arc},
+        thread,
+        time::{Duration, Instant},
+    };
+    use crate::icons::{self, IconPixels};
 
-    const BG: Color32 = Color32::from_rgb(17,20,26);
-    const PANEL: Color32 = Color32::from_rgb(24,28,36);
-    const ACCENT: Color32 = Color32::from_rgb(111,189,191);
-    const GREEN: Color32 = Color32::from_rgb(111,211,156);
-    const MUTED: Color32 = Color32::from_rgb(154,166,183);
+    const BACKGROUND: Color32 = Color32::from_rgb(17, 15, 22);
+    const SIDEBAR: Color32 = Color32::from_rgb(23, 20, 29);
+    const PANEL: Color32 = Color32::from_rgb(31, 27, 39);
+    const HOVER: Color32 = Color32::from_rgb(43, 36, 55);
+    const OUTLINE: Color32 = Color32::from_rgb(62, 51, 75);
+    const PURPLE: Color32 = Color32::from_rgb(183, 141, 248);
+    const PURPLE_DIM: Color32 = Color32::from_rgb(92, 67, 129);
+    const TEXT: Color32 = Color32::from_rgb(240, 235, 246);
+    const MUTED: Color32 = Color32::from_rgb(169, 158, 184);
+    const SUCCESS: Color32 = Color32::from_rgb(150, 220, 172);
+    const WARNING: Color32 = Color32::from_rgb(229, 184, 120);
+    const ERROR: Color32 = Color32::from_rgb(239, 132, 146);
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Page { Windows, AutoHide, Settings }
+    enum Page { Windows, Auto, Settings }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Filter { All, Hidden }
 
     pub struct App {
         windows: Vec<Window>,
         rules: Vec<String>,
         page: Page,
+        filter: Filter,
         search: String,
         new_rule: String,
+        expanded: HashSet<String>,
         note: String,
-        last_refresh: Instant,
+        note_error: bool,
         busy: bool,
-        completion_tx: Sender<String>,
-        completion_rx: Receiver<String>,
+        last_refresh: Instant,
+        completion_tx: Sender<(String, bool)>,
+        completion_rx: Receiver<(String, bool)>,
+        icon_sender: Sender<(String, Option<IconPixels>)>,
+        icon_receiver: Receiver<(String, Option<IconPixels>)>,
+        icon_pending: HashSet<String>,
+        app_icons: HashMap<String, Option<egui::TextureHandle>>,
+        logo: egui::TextureHandle,
+    }
+
+    fn logo_image() -> egui::ColorImage {
+        let bytes = include_bytes!("../assets/pawhide.png");
+        let png = image::load_from_memory(bytes).expect("bundled PawHide logo must be a PNG").to_rgba8();
+        let (width, height) = png.dimensions();
+        egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], png.as_raw())
     }
 
     impl App {
-        fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
             let mut style = (*cc.egui_ctx.style()).clone();
-            style.spacing.item_spacing = egui::vec2(11.0, 12.0);
-            style.spacing.button_padding = egui::vec2(12.0, 8.0);
+            style.spacing.item_spacing = egui::vec2(6.0, 6.0);
+            style.spacing.button_padding = egui::vec2(10.0, 5.0);
             cc.egui_ctx.set_style(style);
             let mut visuals = egui::Visuals::dark();
-            visuals.panel_fill = BG;
+            visuals.panel_fill = BACKGROUND;
             visuals.window_fill = PANEL;
-            visuals.widgets.inactive.bg_fill = Color32::from_rgb(38,43,53);
-            visuals.widgets.hovered.bg_fill = Color32::from_rgb(52,64,75);
-            visuals.selection.bg_fill = Color32::from_rgb(45,91,96);
+            visuals.extreme_bg_color = BACKGROUND;
+            visuals.faint_bg_color = SIDEBAR;
+            visuals.widgets.noninteractive.bg_fill = PANEL;
+            visuals.widgets.inactive.bg_fill = PANEL;
+            visuals.widgets.hovered.bg_fill = HOVER;
+            visuals.widgets.active.bg_fill = PURPLE_DIM;
+            visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, OUTLINE);
+            visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, PURPLE_DIM);
+            visuals.selection.bg_fill = PURPLE_DIM;
+            visuals.selection.stroke = egui::Stroke::new(1.0, PURPLE);
             cc.egui_ctx.set_visuals(visuals);
             let (completion_tx, completion_rx) = mpsc::channel();
+            let (icon_sender, icon_receiver) = mpsc::channel();
+            let logo = cc.egui_ctx.load_texture("pawhide-brand", logo_image(), egui::TextureOptions::LINEAR);
             let mut app = Self {
                 windows: Vec::new(), rules: Vec::new(), page: Page::Windows,
-                search: String::new(), new_rule: String::new(), note: String::new(),
-                last_refresh: Instant::now() - Duration::from_secs(10),
-                busy: false, completion_tx, completion_rx,
+                filter: Filter::All, search: String::new(), new_rule: String::new(),
+                expanded: HashSet::new(), note: String::new(), note_error: false,
+                busy: false, last_refresh: Instant::now() - Duration::from_secs(10),
+                completion_tx, completion_rx, icon_sender, icon_receiver,
+                icon_pending: HashSet::new(), app_icons: HashMap::new(), logo,
             };
             app.refresh();
             app
         }
+
         fn refresh(&mut self) {
             match platform::windows() {
-                Ok(windows) => self.windows = windows.into_iter().filter(|w| !w.tool_window).collect(),
-                Err(err) => self.note = format!("Window discovery failed: {err:#}"),
+                Ok(found) => self.windows = found.into_iter().filter(|w| !w.tool_window).collect(),
+                Err(error) => { self.note = format!("Window discovery failed: {error:#}"); self.note_error = true; }
             }
             match config::load() {
                 Ok(cfg) => self.rules = cfg.applications,
-                Err(err) => self.note = format!("Config error: {err:#}"),
+                Err(error) => { self.note = format!("Configuration error: {error:#}"); self.note_error = true; }
             }
             self.last_refresh = Instant::now();
         }
-        fn protection(&mut self, window: &Window, hide: bool, ctx: egui::Context) {
-            if self.busy { return }
-            self.busy = true;
-            self.note = format!("Working on {}…", window.exe);
-            let w = window.clone();
-            let sender = self.completion_tx.clone();
-            // Native injection is synchronous and can be slow: keep it off the UI thread.
+
+        fn ensure_app_icon(&mut self, app: &str, pid: u32, ctx: &egui::Context) {
+            let key = app.to_ascii_lowercase();
+            if self.app_icons.contains_key(&key) || !self.icon_pending.insert(key.clone()) { return; }
+            let sender = self.icon_sender.clone();
+            let ctx = ctx.clone();
             thread::spawn(move || {
-                let message = match platform::apply_window(&w, hide, false) {
-                    Ok(true) => format!("{} — {}", w.exe, if hide {"Excluded"} else {"Visible"}),
-                    Ok(false) => format!("{} — Windows could not verify capture state", w.exe),
-                    Err(err) => format!("{} — {err:#}", w.exe),
-                };
-                let _ = sender.send(message);
+                let result = icons::from_pid(pid);
+                let _ = sender.send((key, result));
                 ctx.request_repaint();
             });
         }
+
+        fn app_icon(&self, ui: &mut egui::Ui, app: &str) {
+            let name = app.to_ascii_lowercase();
+            if let Some(Some(icon)) = self.app_icons.get(&name) {
+                ui.add(egui::Image::new((icon.id(), egui::vec2(34.0, 34.0))).corner_radius(5));
+            } else {
+                egui::Frame::NONE.fill(HOVER).corner_radius(5).show(ui, |ui| {
+                    ui.add_sized([34.0, 34.0], egui::Label::new(RichText::new("▣").size(19.0).color(MUTED)));
+                });
+            }
+        }
+
+        /// Single logical operation; per-window failures are reported, never silently ignored.
+        fn apply(&mut self, windows: Vec<Window>, hide: bool, ctx: egui::Context) {
+            if self.busy || windows.is_empty() { return; }
+            self.busy = true;
+            self.note_error = false;
+            self.note = if hide { "Protecting windows…".into() } else { "Restoring windows…".into() };
+            let sender = self.completion_tx.clone();
+            thread::spawn(move || {
+                let count = windows.len();
+                let mut passed = 0;
+                let mut failures = Vec::new();
+                for w in windows {
+                    match platform::apply_window(&w, hide, false) {
+                        Ok(true) => passed += 1,
+                        Ok(false) => failures.push(format!("{}: affinity unreadable", w.exe)),
+                        Err(err) => failures.push(format!("{}: {err:#}", w.exe)),
+                    }
+                }
+                let action = if hide { "protected" } else { "restored" };
+                let message = if failures.is_empty() {
+                    format!("{passed}/{count} windows {action} and verified")
+                } else {
+                    format!("{passed}/{count} {action}; {}", failures.join(" | "))
+                };
+                let _ = sender.send((message, !failures.is_empty()));
+                ctx.request_repaint();
+            });
+        }
+
+        fn auto_command(&mut self, command: &'static str, ctx: egui::Context) {
+            if self.busy { return; }
+            self.busy = true;
+            self.note_error = false;
+            self.note = format!("AutoHide: {command}…");
+            let sender = self.completion_tx.clone();
+            thread::spawn(move || {
+                let result = std::env::current_exe()
+                    .map(|exe| exe.with_file_name("pawhide.exe"))
+                    .map_err(|e| e.to_string())
+                    .and_then(|exe| std::process::Command::new(exe)
+                        .args(["auto", command]).creation_flags(CREATE_NO_WINDOW)
+                        .output().map_err(|e| e.to_string()));
+                let (message, failed) = match result {
+                    Ok(output) if output.status.success() => (String::from_utf8_lossy(&output.stdout).trim().to_owned(), false),
+                    Ok(output) => (String::from_utf8_lossy(&output.stderr).trim().to_owned(), true),
+                    Err(err) => (format!("AutoHide unavailable: {err}. Put pawhide.exe beside PawHideUI.exe"), true),
+                };
+                let _ = sender.send((message, failed));
+                ctx.request_repaint();
+            });
+        }
+
         fn add_rule(&mut self) {
-            let result: anyhow_like::Result = (|| {
-                let name=config::normalize_exe(&self.new_rule).map_err(|e|e.to_string())?;
-                let mut cfg=config::load().map_err(|e|e.to_string())?;
-                if !cfg.applications.contains(&name) {
-                    cfg.applications.push(name.clone());cfg.applications.sort();
-                    config::save(&cfg).map_err(|e|e.to_string())?;
+            let result: Result<(), String> = (|| {
+                let application = config::normalize_exe(&self.new_rule).map_err(|e| e.to_string())?;
+                let mut cfg = config::load().map_err(|e| e.to_string())?;
+                if !cfg.applications.contains(&application) {
+                    cfg.applications.push(application);
+                    cfg.applications.sort();
+                    config::save(&cfg).map_err(|e| e.to_string())?;
                 }
                 self.new_rule.clear();
                 Ok(())
             })();
-            match result {Ok(())=>self.note="AutoHide rule saved".into(),Err(err)=>self.note=err}
+            match result {
+                Ok(()) => { self.note = "AutoHide application saved".into(); self.note_error = false; },
+                Err(err) => { self.note = err; self.note_error = true; },
+            }
             self.refresh();
         }
-        fn remove_rule(&mut self, name:&str) {
+
+        fn remove_rule(&mut self, name: &str) {
             match config::load() {
                 Ok(mut cfg) => {
-                    cfg.applications.retain(|x|x!=name);
-                    match config::save(&cfg){Ok(())=>self.note=format!("Removed {name} from AutoHide"),Err(err)=>self.note=err.to_string()}
+                    cfg.applications.retain(|item| item != name);
+                    match config::save(&cfg) {
+                        Ok(()) => { self.note = format!("Removed {name}"); self.note_error = false; },
+                        Err(err) => { self.note = err.to_string(); self.note_error = true; },
+                    }
                 },
-                Err(err)=>self.note=err.to_string(),
+                Err(err) => { self.note = err.to_string(); self.note_error = true; },
             }
             self.refresh();
         }
-        fn auto_command(&mut self, argument:&str) {
-            // AutoHide worker lives in the CLI; GUI uses the stable `auto` contract.
-            // Manual window operations never shell out and use pawhide-core directly.
-            let result = std::env::current_exe()
-                .map(|path|path.with_file_name("pawhide.exe"))
-                .map_err(|e|e.to_string())
-                .and_then(|path|std::process::Command::new(path)
-                    .args(["auto",argument])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output().map_err(|e|e.to_string()));
-            self.note = match result {
-                Ok(output) if output.status.success()=>String::from_utf8_lossy(&output.stdout).trim().into(),
-                Ok(output)=>String::from_utf8_lossy(&output.stderr).trim().into(),
-                Err(err)=>format!("Cannot control AutoHide: {err}. Put pawhide.exe beside PawHideUI.exe"),
-            };
-            self.refresh();
+
+        fn titlebar(&mut self, ctx: &egui::Context) {
+            egui::TopBottomPanel::top("window-title")
+                .exact_height(40.0)
+                .frame(egui::Frame::NONE.fill(SIDEBAR).inner_margin(egui::Margin::symmetric(12, 5)))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::new((self.logo.id(), egui::vec2(28.0, 28.0))).corner_radius(6));
+                        ui.label(RichText::new("PawHide").strong().size(15.0).color(TEXT));
+                        let available = (ui.available_width() - 78.0).max(0.0);
+                        let drag = ui.add_sized([available, 29.0], egui::Label::new(" ").sense(egui::Sense::drag()));
+                        if drag.drag_started() { ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag); }
+                        if ui.add_sized([30.0, 27.0], egui::Button::new(RichText::new("−").size(16.0).color(MUTED))
+                            .fill(SIDEBAR).stroke(egui::Stroke::NONE)).on_hover_text("Minimize").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+                        if ui.add_sized([30.0, 27.0], egui::Button::new(RichText::new("×").size(19.0).color(TEXT))
+                            .fill(SIDEBAR).stroke(egui::Stroke::NONE)).on_hover_text("Close").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                });
         }
-        fn heading(ui:&mut egui::Ui,title:&str,detail:&str) {
-            ui.label(RichText::new(title).size(24.0).strong().color(Color32::WHITE));
-            ui.label(RichText::new(detail).size(13.0).color(MUTED));
-            ui.add_space(12.0);
+
+        fn navigation(&mut self, ctx: &egui::Context) {
+            egui::SidePanel::left("pawhide-nav").exact_width(126.0).resizable(false)
+                .frame(egui::Frame::NONE.fill(SIDEBAR).inner_margin(egui::Margin::same(10)))
+                .show(ctx, |ui| {
+                    ui.add_space(12.0);
+                    for (page, label) in [
+                        (Page::Windows, "Windows"), (Page::Auto, "AutoHide"), (Page::Settings, "Settings"),
+                    ] {
+                        let selected = self.page == page;
+                        let color = if selected { TEXT } else { MUTED };
+                        let fill = if selected { PURPLE_DIM } else { SIDEBAR };
+                        if ui.add_sized([ui.available_width(), 31.0], egui::Button::new(
+                            RichText::new(label).size(12.0).color(color)).fill(fill).stroke(egui::Stroke::NONE)
+                        ).clicked() { self.page = page; }
+                        ui.add_space(4.0);
+                    }
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                        ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(10.0).color(MUTED));
+                        ui.label(RichText::new("LOCAL • WINDOWS").size(9.5).color(PURPLE));
+                    });
+                });
         }
-        fn windows_page(&mut self,ui:&mut egui::Ui) {
-            Self::heading(ui,"Windows","Manage individual windows without hunting for hexadecimal handles.");
+
+        fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
             ui.horizontal(|ui| {
-                ui.label("Search");
-                ui.add_sized([320.0,30.0],egui::TextEdit::singleline(&mut self.search).hint_text("Application or window title"));
-                if ui.button("Refresh").clicked() {self.refresh()}
+                ui.label(RichText::new(title).size(17.0).strong().color(TEXT));
+                ui.label(RichText::new(description).size(11.0).color(MUTED));
             });
-            ui.separator();
-            let mut grouped:BTreeMap<String,Vec<Window>> = BTreeMap::new();
-            for w in &self.windows {
-                if !self.search.is_empty() && !w.exe.to_lowercase().contains(&self.search.to_lowercase())
-                    && !w.title.to_lowercase().contains(&self.search.to_lowercase()) {continue}
-                grouped.entry(w.exe.clone()).or_default().push(w.clone());
-            }
-            egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
-                if grouped.is_empty(){ui.label("No matching windows");}
-                for (app,items) in grouped {
-                    let hidden=items.iter().filter(|w|w.affinity==Some(EXCLUDED)).count();
-                    egui::CollapsingHeader::new(format!("{app}    ·    {hidden}/{} protected",items.len()))
-                        .id_salt(&app).default_open(hidden>0 || items.len()>1)
-                        .show(ui,|ui|{
-                            for w in items {
-                                ui.horizontal(|ui|{
-                                    ui.vertical(|ui|{
-                                        ui.label(RichText::new(&w.title).color(Color32::WHITE));
-                                        ui.label(RichText::new(format!("Window 0x{:X} · PID {}",w.hwnd,w.pid)).small().color(MUTED));
-                                    });
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                                        if w.affinity == Some(EXCLUDED) {
-                                            if ui.add_enabled(!self.busy, egui::Button::new("Show")).clicked(){self.protection(&w,false,ui.ctx().clone())}
-                                            ui.colored_label(GREEN,"Protected");
-                                        } else {
-                                            if ui.add_enabled(!self.busy, egui::Button::new("Hide")).clicked(){self.protection(&w,true,ui.ctx().clone())}
-                                            ui.colored_label(MUTED,if w.affinity==Some(0){"Visible"}else{"Unknown"});
-                                        }
-                                    });
-                                });
-                                ui.separator();
-                            }
+            ui.add_space(4.0);
+        }
+
+        /// The group button is intentionally OUTSIDE the disclosure. No extra click to protect.
+        fn application_row(&mut self, ui: &mut egui::Ui, name: &str, windows: &[Window]) {
+            let protected = windows.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
+            let all_protected = protected == windows.len();
+            let shell = windows.iter().any(|w| w.pid == platform::shell_pid());
+            let expanded = self.expanded.contains(name);
+            let count = windows.len();
+            self.ensure_app_icon(name, windows[0].pid, ui.ctx());
+            egui::Frame::NONE.fill(PANEL).stroke(egui::Stroke::new(1.0, OUTLINE)).corner_radius(6)
+                .inner_margin(egui::Margin::symmetric(9, 7)).show(ui, |ui| {
+                    let width = ui.available_width();
+                    ui.horizontal(|ui| {
+                        self.app_icon(ui, name);
+                        let name_width = (width - 167.0).max(100.0);
+                        ui.allocate_ui_with_layout(egui::vec2(name_width, 37.0), egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            ui.add(egui::Label::new(RichText::new(name).size(12.3).strong().color(TEXT)).truncate())
+                                .on_hover_text(name);
+                            let caption = if shell { "Windows shell · restricted".to_owned() }
+                                else { format!("{protected}/{count} hidden · {count} window{}", if count == 1 { "" } else { "s" }) };
+                            ui.label(RichText::new(caption).size(10.3).color(if protected > 0 { SUCCESS } else { MUTED }));
                         });
+                        let action = if all_protected { "Show" } else { "Hide" };
+                        let result = ui.add_enabled(!self.busy && !shell, egui::Button::new(button_text(action, all_protected))
+                            .fill(if all_protected { HOVER } else { SIDEBAR })
+                            .stroke(egui::Stroke::new(1.0, if all_protected { OUTLINE } else { PURPLE_DIM }))
+                            .min_size(egui::vec2(60.0, 27.0)));
+                        if result.on_hover_text(if shell { "Shell protection is blocked by default" }
+                            else if all_protected { "Restore capture of every window in this group" }
+                            else { "Exclude all windows in this group from compatible capture" }).clicked() {
+                            let selected = windows.iter().filter(|w| if all_protected { w.affinity != Some(0) } else { w.affinity != Some(EXCLUDED) })
+                                .cloned().collect();
+                            self.apply(selected, !all_protected, ui.ctx().clone());
+                        }
+                        let arrow = if expanded { "⌄" } else { "›" };
+                        if ui.add_sized([23.0, 27.0], egui::Button::new(RichText::new(arrow).color(PURPLE))
+                            .fill(PANEL).stroke(egui::Stroke::NONE)).on_hover_text("Individual windows").clicked() {
+                            if expanded { self.expanded.remove(name); } else { self.expanded.insert(name.to_owned()); }
+                        }
+                    });
+                    if expanded {
+                        ui.add_space(6.0);
+                        for window in windows {
+                            let hidden = window.affinity == Some(EXCLUDED);
+                            let (state, color) = match window.affinity {
+                                Some(EXCLUDED) => ("Hidden", SUCCESS),
+                                Some(0) => ("Visible", MUTED),
+                                Some(1) => ("Blacked", WARNING),
+                                _ => ("Unknown", WARNING),
+                            };
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.add_space(8.0);
+                                let title_width = (ui.available_width() - 115.0).max(75.0);
+                                ui.add_sized([title_width, 22.0], egui::Label::new(
+                                    RichText::new(&window.title).size(11.0).color(TEXT)).truncate())
+                                    .on_hover_text(format!("{}\nPID {} · HWND 0x{:X}", window.title, window.pid, window.hwnd));
+                                ui.label(RichText::new(state).size(10.0).color(color));
+                                let action = if hidden { "Show" } else { "Hide" };
+                                if ui.add_enabled(!self.busy && !shell, egui::Button::new(
+                                    RichText::new(action).size(10.0).color(PURPLE))
+                                    .fill(HOVER).stroke(egui::Stroke::NONE).min_size(egui::vec2(43.0, 21.0)))
+                                    .clicked() {
+                                    self.apply(vec![window.clone()], !hidden, ui.ctx().clone());
+                                }
+                            });
+                        }
+                    }
+                });
+        }
+
+        fn windows_page(&mut self, ui: &mut egui::Ui) {
+            let hidden = self.windows.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
+            Self::heading(ui, "Windows", &format!("{hidden}/{} hidden", self.windows.len()));
+            ui.horizontal(|ui| {
+                let search_width = (ui.available_width() - 75.0).max(100.0);
+                ui.add_sized([search_width, 27.0], egui::TextEdit::singleline(&mut self.search)
+                    .hint_text("Search programs or window titles"));
+                if ui.add_sized([65.0, 27.0], egui::Button::new("Refresh")).clicked() { self.refresh(); }
+            });
+            ui.horizontal(|ui| {
+                if ui.selectable_label(self.filter == Filter::All, "All programs").clicked() { self.filter = Filter::All; }
+                if ui.selectable_label(self.filter == Filter::Hidden, format!("Hidden ({hidden})")).clicked() { self.filter = Filter::Hidden; }
+            });
+            ui.add_space(3.0);
+            let query = self.search.trim().to_ascii_lowercase();
+            let mut groups: BTreeMap<String, Vec<Window>> = BTreeMap::new();
+            // Keep complete groups. A title search or "Hidden" filter must not
+            // turn "Hide all" into "Hide only a silently filtered subset".
+            let visible_apps: HashSet<String> = self.windows.iter().filter(|w| {
+                (self.filter == Filter::All || w.affinity == Some(EXCLUDED))
+                    && (query.is_empty() || w.exe.to_ascii_lowercase().contains(&query)
+                        || w.title.to_ascii_lowercase().contains(&query))
+            }).map(|w| w.exe.clone()).collect();
+            for w in &self.windows {
+                if visible_apps.contains(&w.exe) {
+                    groups.entry(w.exe.clone()).or_default().push(w.clone());
+                }
+            }
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                if groups.is_empty() { ui.add_space(12.0); ui.label(RichText::new("No matching applications").color(MUTED)); }
+                for (name, mut group) in groups {
+                    group.sort_by(|a, b| a.title.cmp(&b.title));
+                    self.application_row(ui, &name, &group);
+                    ui.add_space(3.0);
                 }
             });
         }
-        fn auto_page(&mut self,ui:&mut egui::Ui) {
-            Self::heading(ui,"AutoHide","Save executable rules and manage the background monitor.");
-            ui.horizontal(|ui| {
-                if ui.button("Start monitoring").clicked(){self.auto_command("start")}
-                if ui.button("Stop monitoring").clicked(){self.auto_command("stop")}
-                if ui.button("Check status").clicked(){self.auto_command("status")}
-            });
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.add_sized([300.0,30.0],egui::TextEdit::singleline(&mut self.new_rule).hint_text("Example: PicView.exe"));
-                if ui.button("Add application").clicked(){self.add_rule()}
-            });
-            ui.add_space(6.0);
-            for name in self.rules.clone() {
+
+        fn auto_page(&mut self, ui: &mut egui::Ui) {
+            Self::heading(ui, "AutoHide", "Monitor application windows");
+            egui::Frame::NONE.fill(PANEL).corner_radius(6).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+                ui.label(RichText::new("Background monitor").strong().color(TEXT));
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(&name).color(Color32::WHITE));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                        if ui.button("Remove").clicked(){self.remove_rule(&name)}
-                    });
+                    for (label, command) in [("Start", "start"), ("Stop", "stop"), ("Status", "status")] {
+                        if ui.add_enabled(!self.busy, egui::Button::new(RichText::new(label).color(TEXT)))
+                            .clicked() { self.auto_command(command, ui.ctx().clone()); }
+                    }
                 });
-                ui.separator();
-            }
-            ui.label(RichText::new("AutoHide is asynchronous: activate and verify before beginning a sensitive screen share.").small().color(MUTED));
+            });
+            ui.add_space(11.0);
+            ui.label(RichText::new(format!("Saved applications ({})", self.rules.len())).strong().color(TEXT));
+            ui.horizontal(|ui| {
+                let width = (ui.available_width() - 65.0).max(90.0);
+                ui.add_sized([width, 27.0], egui::TextEdit::singleline(&mut self.new_rule).hint_text("PicView.exe"));
+                if ui.add_sized([55.0, 27.0], egui::Button::new("Add")).clicked() { self.add_rule(); }
+            });
+            ui.add_space(5.0);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if self.rules.is_empty() { ui.label(RichText::new("No AutoHide applications configured").color(MUTED)); }
+                for name in self.rules.clone() {
+                    egui::Frame::NONE.fill(PANEL).corner_radius(5).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let width = (ui.available_width() - 75.0).max(75.0);
+                            ui.add_sized([width, 24.0], egui::Label::new(RichText::new(&name).color(TEXT)).truncate());
+                            if ui.button("Remove").clicked() { self.remove_rule(&name); }
+                        });
+                    });
+                    ui.add_space(3.0);
+                }
+            });
         }
-        fn settings_page(&mut self,ui:&mut egui::Ui) {
-            Self::heading(ui,"Settings","PawHide is local-only. Your rules are stored on this PC.");
-            if let Ok(path)=config::config_path(){
-                ui.label(RichText::new("Configuration file").strong());
-                ui.monospace(path.display().to_string());
-            }
-            ui.add_space(12.0);
-            ui.label("Normal Windows capture exclusion applies to all compatible capture programs, including ShareX. It cannot selectively exclude Discord.");
-            ui.add_space(12.0);
-            ui.label(RichText::new("Capture affinity readback is not proof against every capture method.").color(MUTED));
+
+        fn settings_page(&mut self, ui: &mut egui::Ui) {
+            Self::heading(ui, "Settings", "Local configuration");
+            egui::Frame::NONE.fill(PANEL).corner_radius(6).inner_margin(egui::Margin::same(11)).show(ui, |ui| {
+                ui.label(RichText::new("Configuration").strong().color(TEXT));
+                if let Ok(path) = config::config_path() {
+                    ui.add(egui::Label::new(RichText::new(path.display().to_string()).size(11.0).color(MUTED)).wrap());
+                }
+                ui.add_space(10.0);
+                ui.label(RichText::new("Capture exclusion also affects compatible screenshot software (including ShareX). It's not Discord-specific.")
+                    .size(11.0).color(MUTED));
+                ui.add_space(8.0);
+                ui.label(RichText::new("Always confirm privacy in a real test stream. Windows affinity readback alone isn't a guarantee.")
+                    .size(11.0).color(WARNING));
+            });
         }
     }
 
-    mod anyhow_like { pub type Result = std::result::Result<(),String>; }
+    fn button_text(action: &str, protected: bool) -> RichText {
+        RichText::new(action).size(11.0).strong().color(if protected { TEXT } else { PURPLE })
+    }
 
     impl eframe::App for App {
-        fn update(&mut self,ctx:&egui::Context,_frame:&mut eframe::Frame){
-            while let Ok(message) = self.completion_rx.try_recv() {
-                self.note = message; self.busy = false; self.refresh();
+        fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+            while let Ok((message, error)) = self.completion_rx.try_recv() {
+                self.note = message; self.note_error = error; self.busy = false; self.refresh();
             }
-            if !self.busy && self.last_refresh.elapsed()>=Duration::from_secs(2){self.refresh()}
-            egui::SidePanel::left("pawhide_navigation").resizable(false).min_width(180.0).show(ctx,|ui|{
-                ui.add_space(18.0);
-                ui.label(RichText::new("🐾 PawHide").size(22.0).strong().color(ACCENT));
-                ui.add_space(20.0);
-                ui.selectable_value(&mut self.page,Page::Windows,"Windows");
-                ui.selectable_value(&mut self.page,Page::AutoHide,"AutoHide");
-                ui.selectable_value(&mut self.page,Page::Settings,"Settings");
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT),|ui|{
-                    ui.label(RichText::new(format!("v{} · Windows",env!("CARGO_PKG_VERSION"))).small().color(MUTED));
+            while let Ok((key, image)) = self.icon_receiver.try_recv() {
+                self.icon_pending.remove(&key);
+                let handle = image.map(|pixels| ctx.load_texture(
+                    format!("app-icon-{key}"),
+                    egui::ColorImage::from_rgba_unmultiplied([pixels.width, pixels.height], &pixels.rgba),
+                    egui::TextureOptions::LINEAR,
+                ));
+                self.app_icons.insert(key, handle);
+            }
+            if !self.busy && self.last_refresh.elapsed() >= Duration::from_secs(2) { self.refresh(); }
+            self.titlebar(ctx);
+            self.navigation(ctx);
+            egui::TopBottomPanel::bottom("status")
+                .exact_height(27.0)
+                .frame(egui::Frame::NONE.fill(SIDEBAR).inner_margin(egui::Margin::symmetric(10, 5)))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        let count = self.windows.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
+                        ui.label(RichText::new(format!("{count} protected / {} windows", self.windows.len())).size(10.5).color(SUCCESS));
+                        if self.busy { ui.spinner(); }
+                        if !self.note.is_empty() {
+                            ui.separator();
+                            ui.add(egui::Label::new(RichText::new(&self.note).size(10.5)
+                                .color(if self.note_error { ERROR } else { MUTED })).truncate());
+                        }
+                    });
                 });
-            });
-            egui::TopBottomPanel::bottom("pawhide_notifications").show(ctx,|ui|{
-                ui.horizontal(|ui|{
-                    let protected=self.windows.iter().filter(|w|w.affinity==Some(EXCLUDED)).count();
-                    ui.label(RichText::new(format!("{protected} protected / {} windows",self.windows.len())).color(GREEN));
-                    ui.separator();
-                    ui.label(RichText::new(&self.note).color(MUTED));
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(BACKGROUND).inner_margin(egui::Margin::same(12)))
+                .show(ctx, |ui| match self.page {
+                    Page::Windows => self.windows_page(ui),
+                    Page::Auto => self.auto_page(ui),
+                    Page::Settings => self.settings_page(ui),
                 });
-            });
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(BG).inner_margin(egui::Margin::same(24))).show(ctx,|ui|{
-                match self.page {
-                    Page::Windows=>self.windows_page(ui),
-                    Page::AutoHide=>self.auto_page(ui),
-                    Page::Settings=>self.settings_page(ui),
-                }
-            });
             ctx.request_repaint_after(Duration::from_secs(2));
         }
     }
 
-    pub fn run()->eframe::Result<()> {
-        let opts=eframe::NativeOptions {
-            viewport:egui::ViewportBuilder::default().with_title("PawHide")
-                .with_inner_size([960.0,660.0]).with_min_inner_size([730.0,480.0]),
+    pub fn run() -> eframe::Result<()> {
+        let png = image::load_from_memory(include_bytes!("../assets/pawhide.png"))
+            .expect("bundled icon PNG is valid")
+            .resize_exact(256, 256, image::imageops::FilterType::Lanczos3)
+            .to_rgba8();
+        let icon = egui::IconData { rgba: png.into_raw(), width: 256, height: 256 };
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_title("PawHide")
+                .with_inner_size([730.0, 505.0])
+                .with_min_inner_size([730.0, 505.0])
+                .with_max_inner_size([730.0, 505.0])
+                .with_maximize_button(false)
+                .with_resizable(false)
+                .with_decorations(false)
+                .with_icon(Arc::new(icon)),
             ..Default::default()
         };
-        eframe::run_native("PawHide",opts,Box::new(|cc|Ok(Box::new(App::new(cc)))))
+        eframe::run_native("PawHide", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
     }
 }
 
 #[cfg(windows)]
-fn main()->eframe::Result<()> {windows_ui::run()}
+fn main() -> eframe::Result<()> { windows_ui::run() }

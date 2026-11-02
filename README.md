@@ -102,3 +102,16 @@ Rules are stored at `%LOCALAPPDATA%\PawHide\config.json`:
 - `agent/` — minimal remote DLL for setting affinity in the target process
 
 No WebView2, Electron, network API, telemetry or persistent server. A local IPC API is a possible future extension, **not implemented in this release**.
+
+### GUI identity and window grouping (development update)
+
+- `PawHideUI.exe` uses a compact, fixed-size purple/charcoal window, with its own draggable title bar, minimize and close controls, and **no maximize**.
+- The approved Hidden Paw emblem is bundled as a PNG and Windows `.ico` resource; the executable, taskbar and UI header use the same identity.
+- Application rows show the executable's extracted Windows icon in a 34×34 square on the left. Icon extraction runs off the UI thread and may fall back to a placeholder for restricted/system processes.
+- Each application group offers **Hide / Show** directly on the row. Expanding is only for individually targeting windows (e.g., two Wolfmark documents).
+- Windows shell (`explorer.exe`) bulk protection remains disabled in the UI for safety. Folder-aware protection is a separate future feature, not implemented here.
+- AutoHide rules are unchanged. Only capture affinity is changed; other capture apps such as ShareX will also respect exclusion.
+
+Build with `cargo build --release` (the CLI, agent, **and** UI are default members). `cargo build --release -p pawhide` builds only the CLI and its dependencies; `-p pawhide-ui` builds just the UI and its dependencies. The installer/distribution must put `pawhide.exe`, `pawhide_agent.dll`, and optionally `PawHideUI.exe` in the same folder for shared AutoHide controls.
+
+**Validation:** Windows-specific GUI layout, icon extraction and resource compilation require testing on Windows. Source parsing on Linux is not equivalent to a Windows build or real capture test.

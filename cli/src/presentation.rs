@@ -9,7 +9,7 @@ fn paint(code: &str, label: &str) -> String {
 pub fn good(label: &str) -> String { paint("32",label) }
 pub fn bad(label: &str) -> String { paint("31",label) }
 pub fn warn(label: &str) -> String { paint("33",label) }
-pub fn accent(label: &str) -> String { paint("36",label) }
+pub fn accent(label: &str) -> String { paint("35",label) }
 pub fn dim(label: &str) -> String { paint("90",label) }
 pub fn brief(text:&str, chars:usize) -> String {
     if text.chars().count() <= chars { return text.to_owned() }

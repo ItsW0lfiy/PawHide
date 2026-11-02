@@ -1,5 +1,6 @@
 [package]
 name = "pawhide"
+build = "build.rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,3 +21,6 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Accessibility",
 ] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
