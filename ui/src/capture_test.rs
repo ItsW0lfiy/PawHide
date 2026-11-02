@@ -58,6 +58,7 @@ pub struct CaptureTest {
     error: Option<String>,
     last_count: u64,
     last_check: Instant,
+    last_monitor_scan: Instant,
     fps: f32,
 }
 
@@ -66,9 +67,12 @@ impl CaptureTest {
         let result = monitors();
         let error = result.as_ref().err().cloned();
         Self {
-            monitors: result.unwrap_or_default(), selected: 0, cursor: true,
+            monitors: result.unwrap_or_default(), selected: 0, cursor: false,
             session: None, texture: None, error,
-            last_count: 0, last_check: Instant::now(), fps: 0.0,
+            last_count: 0,
+            last_check: Instant::now(),
+            last_monitor_scan: Instant::now() - Duration::from_secs(5),
+            fps: 0.0,
         }
     }
     pub fn stop(&mut self) {
@@ -85,7 +89,37 @@ impl CaptureTest {
             self.last_check = Instant::now();
         }
     }
+    /// Refresh display topology without interrupting a stable capture.
+    /// Identify the selected monitor by device name rather than array index,
+    /// so plugging another display in cannot silently switch preview sources.
+    fn refresh_monitors(&mut self) {
+        if self.last_monitor_scan.elapsed() < Duration::from_secs(3) { return; }
+        self.last_monitor_scan = Instant::now();
+        match monitors() {
+            Ok(found) => {
+                let previous = self.monitors.get(self.selected);
+                let previous_device = previous.map(|m| m.device.clone());
+                let previous_handle = previous.map(|m| m.handle);
+                let new_selected = previous_device.as_ref()
+                    .and_then(|device| found.iter().position(|m| &m.device == device))
+                    .unwrap_or(0);
+                let changed_source = previous_handle != Some(found[new_selected].handle)
+                    || previous_device.as_deref() != Some(found[new_selected].device.as_str());
+                self.monitors = found;
+                self.selected = new_selected;
+                self.error = None;
+                if changed_source && self.session.is_some() { self.start(); }
+            }
+            Err(error) => {
+                self.stop();
+                self.monitors.clear();
+                self.selected = 0;
+                self.error = Some(error);
+            }
+        }
+    }
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.refresh_monitors();
         let mut restart = false;
         ui.horizontal(|ui| {
             let label = self.monitors.get(self.selected)
@@ -103,13 +137,6 @@ impl CaptureTest {
                 egui::Button::new(if running { "Pause" } else { "Start / Resume" })
             ).clicked() {
                 if running { self.stop(); } else { self.start(); }
-            }
-            if ui.button("Refresh screens").clicked() {
-                self.stop();
-                match monitors() {
-                    Ok(found) => { self.monitors = found; self.selected = 0; self.error = None; }
-                    Err(error) => { self.monitors.clear(); self.error = Some(error); }
-                }
             }
             if ui.checkbox(&mut self.cursor, "Cursor").on_hover_text(
                 "Windows draws the cursor inside the captured frame (no second software cursor). Disable if your display driver still shows artifacts."
