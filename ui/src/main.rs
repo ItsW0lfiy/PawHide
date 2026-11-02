@@ -432,10 +432,11 @@ mod windows_ui {
             let hidden = self.windows.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
             Self::heading(ui, "Windows", &format!("{hidden}/{} hidden", self.windows.len()));
             ui.horizontal(|ui| {
-                let search_width = (ui.available_width() - 75.0).max(100.0);
+                // Window enumeration is already refreshed on the two-second
+                // update cadence. The search field uses all available width.
+                let search_width = ui.available_width();
                 ui.add_sized([search_width, 27.0], egui::TextEdit::singleline(&mut self.search)
                     .hint_text("Search programs or window titles"));
-                if ui.add_sized([65.0, 27.0], egui::Button::new("Refresh")).clicked() { self.refresh(); }
             });
             ui.horizontal(|ui| {
                 if ui.selectable_label(self.filter == Filter::All, "All programs").clicked() { self.filter = Filter::All; }
