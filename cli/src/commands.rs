@@ -1,4 +1,4 @@
-use crate::{ConfigCommand, FolderCommand, LogsCommand, presentation as display};
+use crate::{ConfigCommand, FolderCommand, LogsCommand, CaptureCommand, TaskbarCommand, presentation as display};
 use anyhow::{Context, Result, bail, ensure};
 use pawhide_core::{config,folders,platform::{self, Window, EXCLUDED}};
 use serde_json::{Value, json};
@@ -209,4 +209,46 @@ pub fn logs(command:LogsCommand)->Result<()> {
         }
     }
     Ok(())
+}
+
+
+/// Only explicitly identified Explorer taskbars are eligible. This affects
+/// compatible capture streams, NOT local window visibility or the taskbar mode.
+pub fn capture(command: CaptureCommand) -> Result<()> {
+    match command {
+        CaptureCommand::Taskbar { command } => {
+            let taskbars = platform::taskbar_windows()?;
+            ensure!(!taskbars.is_empty(), "no Explorer taskbar windows detected");
+            match command {
+                TaskbarCommand::Status => {
+                    for bar in &taskbars {
+                        println!("{} · {} · HWND 0x{:X}", bar.title,
+                            platform::state(bar.affinity), bar.hwnd);
+                    }
+                    println!("Capture affinity does not verify Discord's actual captured frames.");
+                    Ok(())
+                }
+                TaskbarCommand::Hide | TaskbarCommand::Show => {
+                    let hide = matches!(command, TaskbarCommand::Hide);
+                    let target = if hide { EXCLUDED } else { 0 };
+                    let mut passed = 0usize;
+                    for bar in &taskbars {
+                        // Explicit shell exception applies only to discovered
+                        // Shell_TrayWnd / Shell_SecondaryTrayWnd windows.
+                        if bar.affinity == Some(target) { passed += 1; continue; }
+                        match platform::apply_window(bar, hide, true) {
+                            Ok(true) => { passed += 1; println!("{}: {}", bar.title,
+                                if hide { "excluded from compatible capture" } else { "capture restored" }); }
+                            Ok(false) => eprintln!("{}: affinity readback unavailable; state NOT verified", bar.title),
+                            Err(error) => eprintln!("{}: {error:#}", bar.title),
+                        }
+                    }
+                    ensure!(passed == taskbars.len(),
+                        "{passed}/{} taskbars verified; check capture and restore if needed", taskbars.len());
+                    println!("Local taskbar visibility and Windows settings were not changed.");
+                    Ok(())
+                }
+            }
+        }
+    }
 }
