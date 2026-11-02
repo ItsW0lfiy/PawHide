@@ -1745,7 +1745,7 @@ checksum = "03351d0f1c066c114015408dc6a3e101f080fc03ef9d8d799aa58ec760cac5a6"
 
 [[package]]
 name = "pawhide"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -1758,14 +1758,14 @@ dependencies = [
 
 [[package]]
 name = "pawhide-agent"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "pawhide-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "dll-syringe",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "pawhide-ui"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "eframe",
  "image",
