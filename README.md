@@ -176,3 +176,37 @@ be a distinct capture mode, not an invisible modification of a Discord stream.
 **Roblox fullscreen:** This revision does not automatically toggle taskbar
 capture exclusion based on Roblox. The explicit taskbar test comes first;
 otherwise automatic Explorer injection would be unsafe and unverified.
+
+
+## Native Capture Test (development)
+
+PawHideUI now has a **Capture Test** page for inspecting a single physical
+monitor through **Windows.Graphics.Capture (WGC)** and Direct3D 11.
+No FFmpeg, PowerShell script, recording, browser, web server or additional
+program is required. WGC is an operating-system API; capture is not part of
+the DLL-injection path and does not change local window visibility.
+
+- Select **Screen 1 / Screen 2 / ...** independently; no combined desktop
+  region or duplicate preview stacked on top of other PawHide controls.
+- Start / Pause / Resume and refresh physical monitor selection.
+- Target 60 FPS, show measured actual FPS and drop old frames instead of
+  buffering them (static displays may legitimately produce fewer frames).
+- Preview scales to at most 1280×720 before uploading to the UI.
+- **Cursor off by default** avoids double-drawn/flickering pointers; when
+  enabled, WGC captures the cursor natively rather than drawing an extra
+  software cursor.
+- If there are multiple monitors, position PawHide on the other monitor to
+  avoid the recursive preview effect.
+- The GUI starts larger (1080×700), can be resized (880×580 to 1600×1000),
+  and still has no maximize button.
+- Stopping capture, leaving the page, or exiting PawHide ends the capture
+  session; frames are never saved.
+
+**Accuracy:** WGC is an independent test of a supported Windows capture path,
+not a clone of Discord's active backend. Discord's actual screen share
+still requires viewer-side verification. Window-affinity readback alone
+is not proof that Discord excludes a window.
+
+**Windows verification pending:** The WGC + Direct3D code has not been
+compiled or run in a real Windows session in this development pass. The
+Linux core/CLI checks cannot compile this Windows-only capture path.
