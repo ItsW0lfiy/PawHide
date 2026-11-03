@@ -1,74 +1,19 @@
-//! Run potentially hanging Windows DLL-injection calls in a disposable CLI
-//! helper process. A timeout recovers the GUI; it does not claim the target is protected.
+//! Bounded disposable CLI operations; injection never runs in the GUI process.
 #![cfg(windows)]
-use pawhide_core::platform::Window;
-use std::{os::windows::process::CommandExt, process::{Command, Stdio}, thread, time::{Duration, Instant}};
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use pawhide_core::{helper, platform::Window};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
-pub fn apply_bounded(window: &Window, hide: bool, timeout: Duration) -> Result<(), String> {
-    let helper = std::env::current_exe()
-        .map_err(|e| format!("cannot locate PawHide: {e}"))?
-        .with_file_name("pawhide.exe");
-    let mut child = Command::new(&helper)
-        .arg(if hide { "hide" } else { "show" })
-        .arg(format!("0x{:X}", window.hwnd))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn().map_err(|e| format!("cannot start {}: {e}", helper.display()))?;
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                let output = child.wait_with_output().map_err(|e| e.to_string())?;
-                if output.status.success() { return Ok(()); }
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let message = if stderr.trim().is_empty() { stdout.trim() } else { stderr.trim() };
-                return Err(if message.is_empty() { "helper failed without an error message".into() } else { message.into() });
-            }
-            Ok(None) if started.elapsed() >= timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("timed out after {}s; state NOT verified (the remote operation may still be pending)", timeout.as_secs()));
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(50)),
-            Err(err) => { let _ = child.kill(); let _ = child.wait(); return Err(err.to_string()); }
-        }
-    }
+pub fn apply(window: &Window, protect: bool, cancel: &AtomicBool) -> Result<(), String> {
+    helper::apply(window, protect, false, || cancel.load(Ordering::Relaxed))
+        .map_err(|e| format!("{e:#}"))
 }
 
-
-/// Bounded helper for capture-only taskbar experimentation.
-/// Never changes physical desktop window styles or visibility.
-pub fn taskbar_bounded(action: &'static str, timeout: Duration) -> Result<String, String> {
-    if !matches!(action, "hide" | "show" | "status") {
-        return Err("unsupported taskbar action".to_owned());
-    }
-    let helper = std::env::current_exe()
-        .map_err(|e| e.to_string())?.with_file_name("pawhide.exe");
-    let mut child = Command::new(&helper)
-        .args(["capture", "taskbar", action])
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn().map_err(|e| format!("cannot run {}: {e}", helper.display()))?;
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                let output = child.wait_with_output().map_err(|e| e.to_string())?;
-                let out = String::from_utf8_lossy(&output.stdout);
-                let err = String::from_utf8_lossy(&output.stderr);
-                if output.status.success() { return Ok(out.trim().to_owned()); }
-                return Err(format!("{} {}", err.trim(), out.trim()).trim().to_owned());
-            }
-            Ok(None) if started.elapsed() >= timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("taskbar operation timed out; remote affinity state unverified".to_owned());
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(50)),
-            Err(e) => { let _ = child.kill(); let _ = child.wait(); return Err(e.to_string()); }
-        }
-    }
+pub fn command(args: &[String], cancel: &AtomicBool) -> Result<String, String> {
+    helper::run(args, Duration::from_secs(8), || {
+        cancel.load(Ordering::Relaxed)
+    })
+    .map_err(|e| format!("{e:#}"))
 }

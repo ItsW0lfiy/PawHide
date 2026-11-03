@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 pawhide-core = { path = "../core" }
-eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"] }
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
