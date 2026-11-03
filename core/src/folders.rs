@@ -2,15 +2,23 @@
 //! Explorer can provide its active folder through ShellWindows; document apps
 //! must send an exact file path (titles are not a privacy-safe source).
 use anyhow::{Context, Result, ensure};
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// Remove the Windows canonicalization namespace from user-visible/config paths.
 /// Leave UNC paths intact, converting `\\?\UNC\server` back to `\\server`.
 pub fn display_path(path: &Path) -> PathBuf {
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         let s = path.to_string_lossy();
-        if let Some(unc) = s.strip_prefix(r"\\?\UNC\") { return PathBuf::from(format!(r"\\{unc}")); }
-        if let Some(drive) = s.strip_prefix(r"\\?\") { return PathBuf::from(drive); }
+        if let Some(unc) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{unc}"));
+        }
+        if let Some(drive) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(drive);
+        }
     }
     path.to_path_buf()
 }
@@ -19,46 +27,77 @@ pub fn display_path(path: &Path) -> PathBuf {
 /// produce an actionable error instead of silently claiming they're protected.
 pub fn validated_folder(path: &Path) -> Result<PathBuf> {
     ensure!(!path.as_os_str().is_empty(), "enter a folder path");
-    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
-    ensure!(absolute.is_dir(), "folder does not exist or is inaccessible: {}", absolute.display());
-    Ok(display_path(&fs::canonicalize(&absolute)
-        .with_context(|| format!("cannot access folder {}", absolute.display()))?))
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    ensure!(
+        absolute.is_dir(),
+        "folder does not exist or is inaccessible: {}",
+        absolute.display()
+    );
+    Ok(display_path(&fs::canonicalize(&absolute).with_context(
+        || format!("cannot access folder {}", absolute.display()),
+    )?))
 }
 
 /// Component-aware containment; on Windows, comparisons ignore case. The root
 /// itself counts as a protected directory for Explorer windows.
 fn contains_path(root: &Path, candidate: &Path) -> bool {
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         let a = display_path(root).to_string_lossy().replace('/', "\\");
         let b = display_path(candidate).to_string_lossy().replace('/', "\\");
         let a = a.trim_end_matches('\\').to_lowercase();
         let b = b.trim_end_matches('\\').to_lowercase();
-        return b == a || b.strip_prefix(&a).is_some_and(|rest| rest.starts_with('\\'));
+        b == a
+            || b.strip_prefix(&a)
+                .is_some_and(|rest| rest.starts_with('\\'))
     }
-    #[cfg(not(windows))] { candidate == root || candidate.starts_with(root) }
+    #[cfg(not(windows))]
+    {
+        candidate == root || candidate.starts_with(root)
+    }
 }
 
-pub fn match_directory<'a>(folders: &'a [PathBuf], directory: &Path) -> Result<Option<&'a PathBuf>> {
+pub fn match_directory<'a>(
+    folders: &'a [PathBuf],
+    directory: &Path,
+) -> Result<Option<&'a PathBuf>> {
     // Resolve symlinks on both sides, including rules saved by older versions.
-    let directory = fs::canonicalize(directory).with_context(|| format!("cannot access directory {}", directory.display()))?;
+    let directory = fs::canonicalize(directory)
+        .with_context(|| format!("cannot access directory {}", directory.display()))?;
     ensure!(directory.is_dir(), "not a folder: {}", directory.display());
-    Ok(folders.iter().find(|root| {
-        fs::canonicalize(root).is_ok_and(|resolved| contains_path(&resolved, &directory))
-    }))
+    let mut inaccessible = None;
+    for root in folders {
+        match fs::canonicalize(root) {
+            Ok(resolved) if contains_path(&resolved, &directory) => return Ok(Some(root)),
+            Ok(_) => {}
+            Err(error) => inaccessible = Some(error),
+        }
+    }
+    if let Some(error) = inaccessible {
+        return Err(error).context("a protected folder is unavailable; match is uncertain");
+    }
+    Ok(None)
 }
 
 pub fn match_document<'a>(folders: &'a [PathBuf], file: &Path) -> Result<Option<&'a PathBuf>> {
-    let file = fs::canonicalize(file).with_context(|| format!("cannot resolve document {}", file.display()))?;
+    let file = fs::canonicalize(file)
+        .with_context(|| format!("cannot resolve document {}", file.display()))?;
     ensure!(file.is_file(), "not a regular file: {}", file.display());
-    Ok(folders.iter().find(|root| {
-        fs::canonicalize(root).is_ok_and(|resolved| contains_path(&resolved, &file))
-    }))
+    Ok(folders
+        .iter()
+        .find(|root| fs::canonicalize(root).is_ok_and(|resolved| contains_path(&resolved, &file))))
 }
 
 /// Old configurations can contain Windows `\\?\` paths. Convert before display
 /// and de-duplication without throwing away inaccessible removable-drive rules.
 pub fn clean_saved_paths(folders: &mut Vec<PathBuf>) {
-    for path in folders.iter_mut() { *path = display_path(path); }
+    for path in folders.iter_mut() {
+        *path = display_path(path);
+    }
     folders.sort();
     folders.dedup();
 }
