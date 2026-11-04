@@ -606,7 +606,9 @@ impl App {
             ] {
                 ui.selectable_value(&mut self.filter, filter, label);
             }
-            if self.discovering {
+            // Automatic two-second refresh must not look like an endless
+            // loading state once we already have a usable window list.
+            if self.discovering && self.windows.is_empty() {
                 ui.spinner();
             }
         });
@@ -891,7 +893,9 @@ impl App {
         } else if self.monitor_error {
             "Error"
         } else {
-            "Starting"
+            // No start attempt is currently in flight; this is not "Starting".
+            // ensure_monitor() will attempt recovery on its bounded retry cadence.
+            "Not running"
         }
     }
 }
