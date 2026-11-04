@@ -1,5 +1,5 @@
 //! Project-local build driver invoked with `cargo all`.
- //! Runs validation, builds the Rust workspace, and produces BOTH distributions.
+//! Runs validation, builds the Rust workspace, and produces BOTH distributions.
 use std::{
     env,
     ffi::OsString,
@@ -30,7 +30,13 @@ fn powershell(root: &Path, script: &Path, label: &str) -> Result<(), String> {
         let mut command = Command::new(executable);
         command
             .current_dir(root)
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
             .arg(script);
         match command.status() {
             Ok(status) if status.success() => return Ok(()),
@@ -43,7 +49,8 @@ fn powershell(root: &Path, script: &Path, label: &str) -> Result<(), String> {
 }
 
 fn run() -> Result<(), String> {
-    if env::args().skip(1).collect::<Vec<_>>().as_slice() != ["all"] {
+    let mut arguments = env::args().skip(1);
+    if arguments.next().as_deref() != Some("all") || arguments.next().is_some() {
         return Err("Usage: cargo all".into());
     }
     if !cfg!(windows) {
@@ -58,7 +65,15 @@ fn run() -> Result<(), String> {
     cargo(&root, &["fmt", "--all", "--check"], "Check Rust formatting")?;
     cargo(
         &root,
-        &["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"],
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
         "Lint all targets",
     )?;
     cargo(
