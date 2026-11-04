@@ -752,8 +752,8 @@ impl App {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.label(RichText::new("Applications").strong());
             ui.horizontal(|ui| {
-                ui.add_sized([(ui.available_width() - 84.0).max(100.0), 27.0], egui::TextEdit::singleline(&mut self.new_rule).hint_text("PicView.exe"));
-                if ui.add_enabled(!self.busy, egui::Button::new("Add rule")).clicked() {
+                ui.add_sized([(ui.available_width() - 84.0).max(100.0), 27.0], egui::TextEdit::singleline(&mut self.new_rule).hint_text(RichText::new("Example: application.exe").color(MUTED).italics()));
+                if ui.add_enabled(!self.busy && !self.new_rule.trim().is_empty(), egui::Button::new("Add rule")).clicked() {
                     let name = self.new_rule.trim().to_owned();
                     self.command(ui.ctx(), &["auto", "add", &name]);
                     self.new_rule.clear();
@@ -771,8 +771,8 @@ impl App {
             ui.add_space(12.0); ui.separator(); ui.add_space(6.0);
             ui.label(RichText::new("Protected folders · Explorer").strong());
             ui.horizontal(|ui| {
-                ui.add_sized([(ui.available_width() - 84.0).max(100.0), 27.0], egui::TextEdit::singleline(&mut self.new_folder).hint_text(r"D:\Private"));
-                if ui.add_enabled(!self.busy, egui::Button::new("Add rule")).clicked() {
+                ui.add_sized([(ui.available_width() - 84.0).max(100.0), 27.0], egui::TextEdit::singleline(&mut self.new_folder).hint_text(RichText::new(r"Example: C:\Path\To\Folder").color(MUTED).italics()));
+                if ui.add_enabled(!self.busy && !self.new_folder.trim().is_empty(), egui::Button::new("Add rule")).clicked() {
                     let path = self.new_folder.trim().to_owned();
                     self.command(ui.ctx(), &["folders", "add", &path]); self.new_folder.clear();
                 }
