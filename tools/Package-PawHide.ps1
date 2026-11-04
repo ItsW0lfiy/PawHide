@@ -25,12 +25,12 @@ if (-not $nsis) {
     if ($candidate) { $nsis = $candidate.Source }
 }
 if (-not $nsis) {
-    foreach ($candidate in @(
-        (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
-        (Join-Path $env:ProgramFiles 'NSIS\makensis.exe'),
-        (Join-Path $env:ChocolateyInstall 'bin\makensis.exe')
-    )) {
-        if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { $nsis = $candidate; break }
+    $paths = @()
+    if (${env:ProgramFiles(x86)}) { $paths += Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe' }
+    if ($env:ProgramFiles) { $paths += Join-Path $env:ProgramFiles 'NSIS\makensis.exe' }
+    if ($env:ChocolateyInstall) { $paths += Join-Path $env:ChocolateyInstall 'bin\makensis.exe' }
+    foreach ($candidate in $paths) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { $nsis = $candidate; break }
     }
 }
 if (-not $nsis) {
