@@ -1,0 +1,4 @@
+[alias]
+# One command for Windows validation, release binaries, portable ZIP and NSIS setup.
+# Normal cargo build stays a fast Rust-only build.
+all = "run --locked -p pawhide-xtask -- all"
