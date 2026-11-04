@@ -234,9 +234,9 @@ impl CaptureTest {
             // A WGC session can be created successfully but never deliver
             // its first frame. Avoid a permanent "Waiting for a new frame".
             if self.capture_started_at.elapsed() >= Duration::from_secs(10)
-                && capture.counts().0 == 0
+                && capture.counts().1 == 0
             {
-                let reason = "No frames received from Windows Graphics Capture after 10 seconds. Try pausing and starting the preview, or choose another monitor.".to_owned();
+                let reason = "No usable preview frames were produced after 10 seconds. Check the capture source, then pause and resume or select another monitor.".to_owned();
                 self.events.push((reason.clone(), true));
                 self.error = Some(reason);
                 self.requested = false;
