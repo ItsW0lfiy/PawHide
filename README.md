@@ -17,6 +17,24 @@ cargo build --release --locked
 cargo test --workspace --locked
 ```
 
+To build, validate and package **everything in one command**, install NSIS and run:
+
+```powershell
+cargo all
+```
+
+`cargo all` is a Cargo alias backed by the repository's small Rust build task.
+It runs formatting, Clippy, release compilation, workspace tests, installer
+fixtures and then produces all three files under `dist/`: the portable
+`PawHide-Windows-x64.zip`, its SHA-256 manifest and the **online**
+`PawHide-setup.exe`. No separate NSIS command is necessary. It detects
+`makensis.exe` from PATH or the standard NSIS installation directories;
+`PAWHIDE_MAKENSIS` can override its location. `cargo build` alone remains
+a fast Rust-only build, so it does not regenerate installer artifacts.
+A release build can fail with Windows "Access is denied" if AutoHide is using
+`target/release/pawhide.exe`; stop monitoring before rebuilding.
+
+
 Keep `target/release/pawhide.exe`, `PawHideUI.exe`, and `pawhide_agent.dll` together. Stop the background monitor and close PawHide before rebuilding files that are in use. A target application may retain an agent DLL until it exits; after an upgrade, restart affected applications if the agent export is incompatible. Do not forcibly unload code executing inside another process.
 
 Windows CI performs formatting, linting, build, tests, installer fixture tests, and NSIS compilation. It uploads artifacts and **does not publish releases**, including on tag pushes. A Linux build cannot validate the Windows UI or capture engine.
@@ -117,13 +135,10 @@ The installer anonymously fetches the latest **public** GitHub release metadata,
 
 Close PawHide and protected applications before upgrading or uninstalling if Windows locks their binaries. Maintenance stops the monitor with a deadline and never terminates target applications. Upgrades preserve rules and unrelated files, attempt rollback on a copy failure, and retain backups if rollback fails. Uninstall removes only PawHide files, shortcuts, its Apps key, and an exactly matching startup command. User configuration and logs survive uninstall. Open PawHide after maintenance to resume configured monitoring, including after an aborted upgrade; the installer offers this on its Finish page.
 
-With NSIS installed, create `dist` and run:
-
-```powershell
-New-Item -ItemType Directory -Force dist | Out-Null
-& "${env:ProgramFiles(x86)}\NSIS\makensis.exe" installer/PawHide.nsi
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File installer/test-bootstrap.ps1
-```
+Build and package both distributions with `cargo all`; it invokes NSIS
+automatically and tests the installer fixtures before packaging. The online
+setup continues to require a public release when it is actually *run*, but
+compiling it is fully local. See the build instructions above.
 
 The installer fixtures do not contact GitHub or alter a real installation. They cover checksums, ZIP traversal/missing components, and rollback. Real public download, upgrade, shortcuts, Apps registration, and uninstall still need an isolated user-account acceptance test.
 
