@@ -14,35 +14,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt, clippy
-      - name: Check formatting
-        run: cargo fmt --all --check
-      - name: Lint native Windows targets
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Build CLI, DLL and GUI
-        run: cargo build --release --locked
-      - name: Run tests
-        run: cargo test --workspace --locked
-      - name: Test online bootstrap with offline fixtures
-        shell: powershell
-        run: ./installer/test-bootstrap.ps1
-      - name: Package portable ZIP with checksum
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist/portable | Out-Null
-          Copy-Item target/release/pawhide.exe, target/release/pawhide_agent.dll, target/release/PawHideUI.exe dist/portable/
-          Copy-Item README.md dist/portable/
-          New-Item -ItemType Directory -Force dist/portable/docs, dist/portable/ui/assets | Out-Null
-          Copy-Item docs/CAPTURE_BOUNDARY.md, docs/RELEASE_READINESS.md dist/portable/docs/
-          Copy-Item ui/assets/pawhide.png dist/portable/ui/assets/
-          Compress-Archive -Path dist/portable/* -DestinationPath dist/PawHide-Windows-x64.zip -Force
-          $sha = (Get-FileHash dist/PawHide-Windows-x64.zip -Algorithm SHA256).Hash
-          "$sha  PawHide-Windows-x64.zip" | Set-Content -Encoding ascii dist/PawHide-Windows-x64.zip.sha256
-      - name: Compile online-only NSIS bootstrap
+      - name: Install NSIS for cargo all packaging
         shell: pwsh
         run: |
           choco install nsis --yes --no-progress
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" installer/PawHide.nsi
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate, release-build and package with Cargo
+        run: cargo all
       - uses: actions/upload-artifact@v4
         with:
           name: PawHide-Windows-x64
