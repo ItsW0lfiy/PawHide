@@ -37,7 +37,15 @@ just Discord.
   no local visibility or desktop-style change is made. Because this injects
   into Explorer it is opt-in, never automatic until tested, and could fail
   or destabilize the shell.
-- Avoid injection into RobloxPlayerBeta.exe (reported anti-tamper failure).
+- Roblox anti-tamper targets and Discord capture clients are blocked before injection. Unknown process identity is rejected. Floorp loader failure is reported as failed affinity, not protection.
+
+## Ownership and preview interpretation
+
+Manual and automatic affinity use separate live-HWND properties. Automatic cleanup restores only a recorded prior affinity and preserves a later manual exclusion. Incomplete Explorer locations or unaccounted tabs do not authorize restoration. HWND destruction removes those properties; the monitor can recover ownership after restarting without guessing from window titles.
+
+`Excluded` means a verified 0x11 affinity. `Blacked / WDA_MONITOR` means 0x1; Microsoft documents black/empty output for that older mode and that pre-2004 Windows treats 0x11 as 0x1. Even 0x11 can behave differently across capture backends. Inspect a real preview and the intended stream; no software readback alone certifies what a viewer sees.
+
+The native preview is a separate WGC monitor capture. Its source, processed, and visible-preview frame rates are measured separately and do not certify Discord's backend. It does not record, transmit, modify another application's capture, or inject into a capture client.
 
 ## Regression acceptance scenarios
 

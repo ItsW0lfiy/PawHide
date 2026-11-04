@@ -1,4 +1,5 @@
 /target/
+/dist/
 **/*.pdb
 *.log
 # Local privacy preferences must never enter Git.

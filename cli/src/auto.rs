@@ -1,20 +1,37 @@
 use crate::AutoCommand;
-use pawhide_core::{config, platform};
 use anyhow::{Context, Result, ensure};
-use std::{collections::HashMap, fs::OpenOptions, os::windows::process::CommandExt, process::{Command, Stdio}, sync::{Mutex, OnceLock}, thread, time::{Duration, Instant}};
+use pawhide_core::{config, platform};
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    os::windows::process::CommandExt,
+    process::{Command, Stdio},
+    sync::{Mutex, OnceLock},
+    thread,
+    time::{Duration, Instant},
+};
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, WAIT_OBJECT_0},
-    System::Threading::{CreateEventW, OpenEventW, SetEvent, WaitForSingleObject, CREATE_NO_WINDOW, EVENT_MODIFY_STATE},
+    Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, WAIT_OBJECT_0},
+    System::Threading::{
+        CREATE_NO_WINDOW, CreateEventW, EVENT_MODIFY_STATE, OpenEventW, SetEvent,
+        WaitForSingleObject,
+    },
     UI::{
         Accessibility::{SetWinEventHook, UnhookWinEvent},
-        WindowsAndMessaging::{DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE, EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS},
+        WindowsAndMessaging::{
+            DispatchMessageW, EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, MSG, PM_REMOVE, PeekMessageW,
+            TranslateMessage, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        },
     },
 };
 
-const EVENT_NAME: &str = "Local\\PawHide.Auto.Stop";
+const EVENT_NAME: &str = pawhide_core::monitor::STOP_EVENT;
 static EVENTS: OnceLock<Mutex<Vec<usize>>> = OnceLock::new();
+static DISCOVERY_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn wide(text: &str) -> Vec<u16> { text.encode_utf16().chain(Some(0)).collect() }
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(Some(0)).collect()
+}
 
 fn running_handle() -> Option<HANDLE> {
     let name = wide(EVENT_NAME);
@@ -23,7 +40,12 @@ fn running_handle() -> Option<HANDLE> {
 }
 
 fn is_running() -> bool {
-    if let Some(h) = running_handle() { unsafe { CloseHandle(h) }; true } else { false }
+    if let Some(h) = running_handle() {
+        unsafe { CloseHandle(h) };
+        true
+    } else {
+        false
+    }
 }
 
 fn list_rules() -> Result<()> {
@@ -32,31 +54,53 @@ fn list_rules() -> Result<()> {
         println!("No AutoHide applications configured. Try: pawhide auto add PicView.exe");
     } else {
         println!("AutoHide applications:");
-        for name in cfg.applications { println!("  {name}"); }
+        for name in cfg.applications {
+            println!("  {name}");
+        }
     }
     Ok(())
 }
 
 fn status() -> Result<()> {
-    println!("AutoHide: {}", if is_running() { "Running" } else { "Stopped" });
+    println!(
+        "AutoHide: {}",
+        if is_running() { "Running" } else { "Stopped" }
+    );
     let cfg = config::load()?;
     println!("Configured applications: {}", cfg.applications.len());
     println!("Protected folders: {}", cfg.folders.len());
     for name in cfg.applications {
         let found = platform::resolve(&name)?;
-        let verified = found.iter().filter(|w| w.affinity == Some(platform::EXCLUDED)).count();
+        let verified = found
+            .iter()
+            .filter(|w| w.affinity == Some(platform::EXCLUDED))
+            .count();
         println!("  {:<25} {verified}/{} excluded", name, found.len());
     }
     Ok(())
 }
 
 pub fn start() -> Result<()> {
-    if is_running() { println!("PawHide monitor already running"); return Ok(()); }
+    if is_running() {
+        println!("PawHide monitor already running");
+        return Ok(());
+    }
     let cfg = config::load()?;
-    ensure!(!cfg.applications.is_empty() || !cfg.folders.is_empty(), "add an AutoHide application or protected folder first");
+    ensure!(
+        !cfg.applications.is_empty() || !cfg.folders.is_empty(),
+        "add an AutoHide application or protected folder first"
+    );
     let log_path = config::config_path()?.with_file_name("auto.log");
     std::fs::create_dir_all(log_path.parent().expect("log has parent"))?;
-    let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > 1_048_576) {
+        let bytes = std::fs::read(&log_path)?;
+        let tail = &bytes[bytes.len().saturating_sub(131_072)..];
+        std::fs::write(&log_path, tail)?;
+    }
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
     let executable = std::env::current_exe()?;
     let child = Command::new(executable)
         .args(["auto", "run"])
@@ -67,10 +111,20 @@ pub fn start() -> Result<()> {
         .spawn()
         .context("could not start AutoHide monitor")?;
     for _ in 0..15 {
-        if is_running() { println!("AutoHide started (PID {}). Log: {}", child.id(), log_path.display()); return Ok(()); }
+        if is_running() {
+            println!(
+                "AutoHide started (PID {}). Log: {}",
+                child.id(),
+                log_path.display()
+            );
+            return Ok(());
+        }
         thread::sleep(Duration::from_millis(100));
     }
-    anyhow::bail!("monitor did not report running. Inspect {}", log_path.display())
+    anyhow::bail!(
+        "monitor did not report running. Inspect {}",
+        log_path.display()
+    )
 }
 
 fn stop() -> Result<()> {
@@ -79,7 +133,12 @@ fn stop() -> Result<()> {
     unsafe { CloseHandle(h) };
     ensure!(success != 0, "could not signal AutoHide monitor");
     for _ in 0..20 {
-        if !is_running() { println!("AutoHide stopped. Existing exclusions remain until explicitly shown or windows close."); return Ok(()); }
+        if !is_running() {
+            println!(
+                "AutoHide stopped. Existing exclusions remain until explicitly shown or windows close."
+            );
+            return Ok(());
+        }
         thread::sleep(Duration::from_millis(100));
     }
     anyhow::bail!("stop was requested, but AutoHide has not exited yet")
@@ -87,25 +146,42 @@ fn stop() -> Result<()> {
 
 pub fn command(command: AutoCommand) -> Result<()> {
     match command {
-        AutoCommand::Add {application} => {
+        AutoCommand::Add { application } => {
             let name = config::normalize_exe(&application)?;
+            if let Some(reason) = platform::unsupported_reason(&name) {
+                anyhow::bail!("{reason}");
+            }
             let mut cfg = config::load()?;
-            if cfg.applications.contains(&name) { println!("Already configured: {name}"); }
-            else {
+            if cfg.applications.contains(&name) {
+                println!("Already configured: {name}");
+            } else {
                 cfg.applications.push(name.clone());
                 cfg.applications.sort();
                 config::save(&cfg)?;
-                println!("Added {name} to AutoHide. {}", if is_running() { "The monitor will pick it up shortly." } else { "Run 'pawhide auto start' to activate." });
+                println!(
+                    "Added {name} to AutoHide. {}",
+                    if is_running() {
+                        "The monitor will pick it up shortly."
+                    } else {
+                        "Starting the monitor."
+                    }
+                );
             }
-            Ok(())
+            start()
         }
-        AutoCommand::Remove {application} => {
+        AutoCommand::Remove { application } => {
             let name = config::normalize_exe(&application)?;
             let mut cfg = config::load()?;
             let before = cfg.applications.len();
             cfg.applications.retain(|n| n != &name);
-            if before == cfg.applications.len() { println!("Not configured: {name}"); }
-            else { config::save(&cfg)?; println!("Removed {name} from AutoHide. Already-hidden windows remain excluded until you run 'pawhide show {name}'."); }
+            if before == cfg.applications.len() {
+                println!("Not configured: {name}");
+            } else {
+                config::save(&cfg)?;
+                println!(
+                    "Removed {name} from AutoHide. Automatic exclusions will be reconciled; manual exclusions remain."
+                );
+            }
             Ok(())
         }
         AutoCommand::List => list_rules(),
@@ -115,12 +191,15 @@ pub fn command(command: AutoCommand) -> Result<()> {
         AutoCommand::Run => run_monitor(),
         AutoCommand::Sync => {
             let cfg = config::load()?;
-            ensure!(!cfg.applications.is_empty(), "no AutoHide rules configured");
             let mut retries = HashMap::new();
-            scan(&cfg, &mut retries, true)?;
-            println!("AutoHide rules applied to currently open windows");
+            let failed = scan(&cfg, &mut retries, true, || false)?;
+            ensure!(
+                failed == 0,
+                "{failed} rule operation(s) failed or are unsupported; affinity NOT verified"
+            );
+            println!("Rule reconciliation completed; changed affinity was verified");
             Ok(())
-        },
+        }
     }
 }
 
@@ -133,69 +212,148 @@ unsafe extern "system" fn win_event_callback(
     _thread: u32,
     _time: u32,
 ) {
-    if (event == EVENT_OBJECT_CREATE || event == EVENT_OBJECT_SHOW) && !hwnd.is_null() && object_id == 0 && child_id == 0 {
-        if let Some(queue) = EVENTS.get() {
-            if let Ok(mut values) = queue.lock() {
-                if values.len() < 4096 { values.push(hwnd as usize); }
-            }
-        }
+    if (event == EVENT_OBJECT_CREATE || event == EVENT_OBJECT_SHOW)
+        && !hwnd.is_null()
+        && object_id == 0
+        && child_id == 0
+        && let Some(queue) = EVENTS.get()
+        && let Ok(mut values) = queue.lock()
+        && values.len() < 4096
+    {
+        values.push(hwnd as usize);
     }
 }
 
 /// The long-running AutoHide monitor must never perform DLL injection in its
 /// own thread. A failing app can otherwise freeze monitoring and stop signals.
 pub(crate) fn protect_bounded(w: &platform::Window) -> Result<()> {
-    let exe = std::env::current_exe()?;
-    let mut child = Command::new(exe)
-        .args(["hide", &format!("0x{:X}", w.hwnd)])
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().context("could not launch protection helper")?;
-    let start = Instant::now();
-    loop {
-        match child.try_wait()? {
-            Some(_) => {
-                let output = child.wait_with_output()?;
-                if output.status.success() { return Ok(()); }
-                let error = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("{}", error.trim());
-            }
-            None if start.elapsed() >= Duration::from_secs(8) => {
-                let _ = child.kill(); let _ = child.wait();
-                anyhow::bail!("protection timed out after 8s; remote state unverified");
-            }
-            None => thread::sleep(Duration::from_millis(50)),
-        }
-    }
+    pawhide_core::helper::apply(w, true, false, || false)
 }
 
-fn scan(cfg: &config::Config, retries: &mut HashMap<(usize, u32), Instant>, log_failures: bool) -> Result<()> {
+fn scan(
+    cfg: &config::Config,
+    retries: &mut HashMap<(usize, u32), Instant>,
+    log_failures: bool,
+    stopped: impl Fn() -> bool,
+) -> Result<usize> {
+    use pawhide_core::ownership::{RuleMatch, should_restore};
     let now = Instant::now();
+    let mut failed = 0usize;
     let all = platform::windows()?;
     retries.retain(|(hwnd, pid), _| all.iter().any(|w| w.hwnd == *hwnd && w.pid == *pid));
-    // Explorer paths are taken from ShellWindows COM; window titles are never
-    // interpreted as filesystem paths. A failed COM lookup does not infer a match.
-    let explorer_folders = if cfg.folders.is_empty() { HashMap::new() }
-        else { match pawhide_core::explorer::open_folder_windows() {
-            Ok(found) => found,
-            Err(error) => { if log_failures { eprintln!("WARN Explorer folder discovery: {error:#}"); } HashMap::new() }
-        } };
+    // COM lives in a bounded child, so a stalled Explorer never hangs monitoring.
+    let snapshot = if cfg.folders.is_empty() {
+        None
+    } else {
+        match pawhide_core::helper::run(
+            &["explorer-snapshot".into()],
+            Duration::from_secs(3),
+            &stopped,
+        )
+        .and_then(|json| {
+            Ok(serde_json::from_str::<pawhide_core::explorer::Snapshot>(
+                &json,
+            )?)
+        }) {
+            Ok(found) => {
+                DISCOVERY_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
+                Some(found)
+            }
+            Err(error) => {
+                if stopped() {
+                    return Ok(failed);
+                }
+                if log_failures
+                    && !DISCOVERY_FAILED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    eprintln!(
+                        "WARN Explorer discovery unavailable; exclusions retained: {error:#}"
+                    );
+                }
+                None
+            }
+        }
+    };
     for w in all {
-        let rule_match = cfg.applications.iter().any(|name| w.exe.eq_ignore_ascii_case(name));
-        let folder_match = platform::is_explorer_folder(&w) && explorer_folders.get(&w.hwnd)
-            .is_some_and(|paths| paths.iter().any(|path| pawhide_core::folders::match_directory(&cfg.folders, path).ok().flatten().is_some()));
-        if !rule_match && !folder_match { continue; }
-        if w.affinity == Some(platform::EXCLUDED) { retries.remove(&(w.hwnd, w.pid)); continue; }
-        if !platform::can_protect_window(&w) { continue; }
-        // Do not continually re-inject into uncooperative processes.
-        if retries.get(&(w.hwnd, w.pid)).is_some_and(|at| now.duration_since(*at) < Duration::from_secs(120)) { continue; }
+        if stopped() {
+            break;
+        }
+        let application = cfg
+            .applications
+            .iter()
+            .any(|name| w.exe.eq_ignore_ascii_case(name));
+        let folder = if cfg.folders.is_empty() || !platform::is_explorer_folder(&w) {
+            RuleMatch::Outside
+        } else if let Some(snapshot) = &snapshot {
+            if let Some(locations) = snapshot.windows.get(&w.hwnd) {
+                let mut matched = false;
+                let mut uncertain =
+                    snapshot.incomplete || locations.uncertain || locations.paths.is_empty();
+                for path in &locations.paths {
+                    match pawhide_core::folders::match_directory(&cfg.folders, path) {
+                        Ok(Some(_)) => matched = true,
+                        Ok(None) => {}
+                        Err(_) => uncertain = true,
+                    }
+                }
+                if matched {
+                    RuleMatch::Matches
+                } else if uncertain {
+                    RuleMatch::Uncertain
+                } else {
+                    RuleMatch::Outside
+                }
+            } else {
+                RuleMatch::Uncertain
+            }
+        } else {
+            RuleMatch::Uncertain
+        };
+        let owned = platform::automatic_original(w.hwnd).is_some();
+        let protect = application || folder == RuleMatch::Matches;
+        let restore = should_restore(owned, application, folder);
+        if !protect && !restore {
+            continue;
+        }
+        if protect && w.affinity == Some(platform::EXCLUDED) {
+            continue;
+        }
+        if !platform::can_protect_window(&w) {
+            failed += 1;
+            continue;
+        }
+        if retries
+            .get(&(w.hwnd, w.pid))
+            .is_some_and(|at| now.duration_since(*at) < Duration::from_secs(120))
+        {
+            continue;
+        }
         retries.insert((w.hwnd, w.pid), now);
-        match protect_bounded(&w) {
-            Ok(()) => { retries.remove(&(w.hwnd, w.pid)); },
-            Err(e) => { if log_failures { eprintln!("ERROR {} 0x{:X}: {e:#}", w.exe, w.hwnd); } },
+        match pawhide_core::helper::apply(&w, protect, true, &stopped) {
+            Ok(()) => {
+                retries.remove(&(w.hwnd, w.pid));
+                if log_failures {
+                    eprintln!(
+                        "INFO rule {}: {} HWND 0x{:X}; affinity verified",
+                        if protect {
+                            "matched / excluded"
+                        } else {
+                            "left / reconciled"
+                        },
+                        w.exe,
+                        w.hwnd
+                    );
+                }
+            }
+            Err(e) => {
+                failed += 1;
+                if log_failures {
+                    eprintln!("ERROR {} HWND 0x{:X}: {e:#}", w.exe, w.hwnd);
+                }
+            }
         }
     }
-    Ok(())
+    Ok(failed)
 }
 
 fn run_monitor() -> Result<()> {
@@ -207,31 +365,75 @@ fn run_monitor() -> Result<()> {
         anyhow::bail!("another AutoHide monitor is running");
     }
     EVENTS.get_or_init(|| Mutex::new(Vec::new()));
-    let hook = unsafe { SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, std::ptr::null_mut(), Some(win_event_callback), 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS) };
-    if hook.is_null() { unsafe { CloseHandle(stop) }; anyhow::bail!("SetWinEventHook failed") }
+    let hook = unsafe {
+        SetWinEventHook(
+            EVENT_OBJECT_CREATE,
+            EVENT_OBJECT_SHOW,
+            std::ptr::null_mut(),
+            Some(win_event_callback),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        )
+    };
+    if hook.is_null() {
+        unsafe { CloseHandle(stop) };
+        anyhow::bail!("SetWinEventHook failed")
+    }
     let mut cfg = config::load()?;
     let mut retries = HashMap::new();
     let mut last_scan = Instant::now() - Duration::from_secs(10);
     let mut last_reload = Instant::now();
     loop {
-        if unsafe { WaitForSingleObject(stop, 0) } == WAIT_OBJECT_0 { break; }
+        if unsafe { WaitForSingleObject(stop, 0) } == WAIT_OBJECT_0 {
+            break;
+        }
         let mut msg: MSG = unsafe { std::mem::zeroed() };
         while unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) } != 0 {
-            unsafe { TranslateMessage(&msg); DispatchMessageW(&msg); }
+            unsafe {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
-        let pending = EVENTS.get().and_then(|events| events.lock().ok()).is_some_and(|mut queue| {
-            if queue.is_empty() { false } else { queue.clear(); true }
-        });
+        let pending = EVENTS
+            .get()
+            .and_then(|events| events.lock().ok())
+            .is_some_and(|mut queue| {
+                if queue.is_empty() {
+                    false
+                } else {
+                    queue.clear();
+                    true
+                }
+            });
         if last_reload.elapsed() >= Duration::from_secs(1) {
-            match config::load() { Ok(new) => { if new.applications != cfg.applications || new.folders != cfg.folders { last_scan = Instant::now() - Duration::from_secs(10); } cfg = new; }, Err(err) => eprintln!("WARN configuration reload: {err:#}") }
+            match config::load() {
+                Ok(new) => {
+                    if new.applications != cfg.applications || new.folders != cfg.folders {
+                        last_scan = Instant::now() - Duration::from_secs(10);
+                    }
+                    cfg = new;
+                }
+                Err(err) => eprintln!("WARN configuration reload: {err:#}"),
+            }
             last_reload = Instant::now();
         }
         if pending || last_scan.elapsed() >= Duration::from_secs(2) {
-            if let Err(err) = scan(&cfg, &mut retries, true) { eprintln!("WARN window scan: {err:#}"); }
+            if let Err(err) = scan(
+                &cfg,
+                &mut retries,
+                true,
+                || unsafe { WaitForSingleObject(stop, 0) } == WAIT_OBJECT_0,
+            ) {
+                eprintln!("WARN window scan: {err:#}");
+            }
             last_scan = Instant::now();
         }
         thread::sleep(Duration::from_millis(40));
     }
-    unsafe { UnhookWinEvent(hook); CloseHandle(stop); }
+    unsafe {
+        UnhookWinEvent(hook);
+        CloseHandle(stop);
+    }
     Ok(())
 }
