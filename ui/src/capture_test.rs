@@ -80,6 +80,7 @@ pub struct CaptureTest {
     error: Option<String>,
     last_counts: (u64, u64, u64),
     last_check: Instant,
+    capture_started_at: Instant,
     last_monitor_scan: Instant,
     captured_fps: f32,
     processed_fps: f32,
@@ -107,6 +108,7 @@ impl CaptureTest {
             error: None,
             last_counts: (0, 0, 0),
             last_check: Instant::now(),
+            capture_started_at: Instant::now(),
             last_monitor_scan: Instant::now() - Duration::from_secs(5),
             captured_fps: 0.0,
             processed_fps: 0.0,
@@ -171,6 +173,7 @@ impl CaptureTest {
                 self.context.clone(),
             ));
             self.last_check = Instant::now();
+            self.capture_started_at = self.last_check;
             self.events
                 .push((format!("Capture starting · {}", monitor.label), false));
         }
@@ -228,6 +231,18 @@ impl CaptureTest {
         self.context = Some(ctx.clone());
         self.refresh_monitors();
         if let Some(capture) = &self.session {
+            // A WGC session can be created successfully but never deliver
+            // its first frame. Avoid a permanent "Waiting for a new frame".
+            if self.capture_started_at.elapsed() >= Duration::from_secs(10)
+                && capture.counts().0 == 0
+            {
+                let reason = "No frames received from Windows Graphics Capture after 10 seconds. Try pausing and starting the preview, or choose another monitor.".to_owned();
+                self.events.push((reason.clone(), true));
+                self.error = Some(reason);
+                self.requested = false;
+                self.clear_session();
+                return;
+            }
             if let Some(error) = capture.error() {
                 self.events.push((format!("Capture failed: {error}"), true));
                 self.requested = error.starts_with("Capture source closed");
