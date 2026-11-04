@@ -9,16 +9,23 @@ pub struct Config {
     pub applications: Vec<String>,
     /// Canonical directories; protect only when an application reports an exact file path.
     pub folders: Vec<PathBuf>,
+    #[serde(skip_serializing_if = "Preferences::is_default")]
     pub preferences: Preferences,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Preferences {
     pub show_system_windows: bool,
     pub capture_cursor: bool,
     pub capture_native_resolution: bool,
     pub capture_thumbnail: bool,
+}
+
+impl Preferences {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 pub fn normalize_exe(name: &str) -> Result<String> {
@@ -133,6 +140,28 @@ mod tests {
         let saved = serde_json::to_string(&cfg).unwrap();
         let restored: Config = serde_json::from_str(&saved).unwrap();
         assert_eq!(restored.folders, cfg.folders);
+    }
+
+    #[test]
+    fn default_preferences_preserve_the_legacy_rules_schema() {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyConfig {
+            applications: Vec<String>,
+            folders: Vec<PathBuf>,
+        }
+        let mut cfg = Config {
+            applications: vec!["picview.exe".into()],
+            folders: vec![PathBuf::from(r"D:\Private")],
+            ..Default::default()
+        };
+        let legacy: LegacyConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(legacy.applications, cfg.applications);
+        assert_eq!(legacy.folders, cfg.folders);
+        cfg.preferences.capture_cursor = true;
+        let restored: Config = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert!(restored.preferences.capture_cursor);
     }
 
     #[test]

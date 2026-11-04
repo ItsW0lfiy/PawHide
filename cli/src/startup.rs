@@ -11,7 +11,7 @@ fn invoke(args: &[&str]) -> Result<std::process::Output> {
         .context("unable to execute Windows reg.exe")
 }
 fn startup_command() -> Result<String> {
-    let binary = std::env::current_exe()?.canonicalize()?;
+    let binary = pawhide_core::folders::display_path(&std::env::current_exe()?.canonicalize()?);
     // Preserve the absolute executable path as an argv-style quoted string.
     Ok(format!("\"{}\" auto start", binary.display()))
 }
