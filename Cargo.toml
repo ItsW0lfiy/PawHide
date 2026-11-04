@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli", "agent", "ui"]
+members = ["core", "cli", "agent", "ui", "xtask"]
 # CLI is the development priority; BOTH executables participate in a default build.
 default-members = ["core", "cli", "agent", "ui"]
 
