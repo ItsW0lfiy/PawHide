@@ -17,7 +17,7 @@ cargo build --release --locked
 cargo test --workspace --locked
 ```
 
-To build, validate and package **everything in one command**, install NSIS and run:
+To build, validate and package **everything in one command**, run:
 
 ```powershell
 cargo all
@@ -27,9 +27,16 @@ cargo all
 It runs formatting, Clippy, release compilation, workspace tests, installer
 fixtures and then produces all three files under `dist/`: the portable
 `PawHide-Windows-x64.zip`, its SHA-256 manifest and the **online**
-`PawHide-setup.exe`. No separate NSIS command is necessary. It detects
-`makensis.exe` from PATH or the standard NSIS installation directories;
-`PAWHIDE_MAKENSIS` can override its location. `cargo build` alone remains
+`PawHide-setup.exe`. No separate NSIS install or command is necessary. It uses
+an existing NSIS compiler when available; otherwise it automatically downloads
+portable NSIS 3.13, checks its [published SHA-256](https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/nsis-3.13.zip/download),
+and caches it under ignored `target/tools/nsis/`. If SourceForge is unavailable,
+it explicitly tries Chocolatey's portable mirror and verifies the same inner ZIP
+checksum; Chocolatey itself is not required or installed. The first uncached build
+needs network access. Later builds verify and reuse the cache offline; deleting
+`target/` causes the next build to download it again. No administrator rights,
+registry changes, or PATH setup are needed. `PAWHIDE_MAKENSIS` remains an optional
+explicit override. `cargo build` alone remains
 a fast Rust-only build, so it does not regenerate installer artifacts.
 A release build can fail with Windows "Access is denied" if AutoHide is using
 `target/release/pawhide.exe`; stop monitoring before rebuilding.
@@ -138,7 +145,7 @@ Close PawHide and protected applications before upgrading or uninstalling if Win
 Build and package both distributions with `cargo all`; it invokes NSIS
 automatically and tests the installer fixtures before packaging. The online
 setup continues to require a public release when it is actually *run*, but
-compiling it is fully local. See the build instructions above.
+generating it does not access PawHide release assets. See the build instructions above.
 
 The installer fixtures do not contact GitHub or alter a real installation. They cover checksums, ZIP traversal/missing components, and rollback. Real public download, upgrade, shortcuts, Apps registration, and uninstall still need an isolated user-account acceptance test.
 

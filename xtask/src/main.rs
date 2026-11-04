@@ -93,6 +93,11 @@ fn run() -> Result<(), String> {
         &root.join("installer/test-bootstrap.ps1"),
         "NSIS bootstrap fixture tests",
     )?;
+    powershell(
+        &root,
+        &root.join("tools/Test-NSISBootstrap.ps1"),
+        "Automatic NSIS dependency fixture tests",
+    )?;
 
     println!("\n==> Package both distributions");
     powershell(

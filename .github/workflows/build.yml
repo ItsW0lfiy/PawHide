@@ -14,10 +14,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt, clippy
-      - name: Install NSIS for cargo all packaging
-        shell: pwsh
-        run: |
-          choco install nsis --yes --no-progress
       - name: Validate, release-build and package with Cargo
         run: cargo all
       - uses: actions/upload-artifact@v4

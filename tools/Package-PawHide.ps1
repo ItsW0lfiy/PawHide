@@ -13,29 +13,8 @@ $release = Join-Path $root 'target\release'
 $dist = Join-Path $root 'dist'
 $stage = Join-Path $dist 'portable'
 
-$nsis = $null
-if ($env:PAWHIDE_MAKENSIS) {
-    $nsis = $env:PAWHIDE_MAKENSIS
-    if (-not (Test-Path -LiteralPath $nsis -PathType Leaf)) {
-        throw "PAWHIDE_MAKENSIS points to a missing file: $nsis"
-    }
-}
-if (-not $nsis) {
-    $candidate = Get-Command makensis.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($candidate) { $nsis = $candidate.Source }
-}
-if (-not $nsis) {
-    $paths = @()
-    if (${env:ProgramFiles(x86)}) { $paths += Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe' }
-    if ($env:ProgramFiles) { $paths += Join-Path $env:ProgramFiles 'NSIS\makensis.exe' }
-    if ($env:ChocolateyInstall) { $paths += Join-Path $env:ChocolateyInstall 'bin\makensis.exe' }
-    foreach ($candidate in $paths) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { $nsis = $candidate; break }
-    }
-}
-if (-not $nsis) {
-    throw 'NSIS makensis.exe was not found. Install NSIS (e.g. winget install NSIS.NSIS), then rerun cargo all. You may set PAWHIDE_MAKENSIS to its full path.'
-}
+. (Join-Path $PSScriptRoot 'Resolve-NSIS.ps1')
+$nsis = Get-PawHideNsis -RepositoryRoot $root
 
 $executables = @('pawhide.exe', 'PawHideUI.exe', 'pawhide_agent.dll')
 foreach ($name in $executables) {
