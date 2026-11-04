@@ -128,6 +128,26 @@ pub fn resolve(target: &str) -> Result<Vec<Window>> {
         .collect())
 }
 
+/// Experimental taskbars are titleless and absent from ordinary app discovery.
+pub fn operation_window(hwnd: usize, allow_taskbar: bool) -> Result<Option<Window>> {
+    if let Some(window) = windows()?.into_iter().find(|w| w.hwnd == hwnd) {
+        return Ok(Some(window));
+    }
+    if allow_taskbar {
+        return Ok(taskbar_windows()?.into_iter().find(|w| w.hwnd == hwnd));
+    }
+    Ok(None)
+}
+
+fn is_taskbar_window(w: &Window) -> bool {
+    if !w.exe.eq_ignore_ascii_case("explorer.exe") {
+        return false;
+    }
+    let mut class = [0u16; 128];
+    let len = unsafe { GetClassNameW(handle(w.hwnd), class.as_mut_ptr(), class.len() as i32) };
+    len > 0 && is_taskbar_class_name(&String::from_utf16_lossy(&class[..len as usize]))
+}
+
 pub fn state(a: Option<u32>) -> &'static str {
     match a {
         Some(EXCLUDED) => "Excluded",
@@ -261,11 +281,11 @@ fn apply_owned_inner(
         "process identity changed or is inaccessible"
     );
     if (w.pid == shell_pid() || w.exe.eq_ignore_ascii_case("explorer.exe"))
-        && !allow_shell
         && !is_explorer_folder(w)
     {
-        bail!(
-            "Windows desktop/taskbar protection is blocked; only individual Explorer folder windows are supported"
+        ensure!(
+            allow_shell && is_taskbar_window(w),
+            "desktop/shell protection is blocked; use an individual Explorer folder window or the explicit taskbar experiment"
         );
     }
     let process = OwnedProcess::from_pid(w.pid).with_context(|| {
@@ -406,6 +426,23 @@ pub fn taskbar_windows() -> Result<Vec<Window>> {
 #[cfg(test)]
 mod taskbar_tests {
     use super::{is_taskbar_class_name, unsupported_reason};
+    #[test]
+    #[ignore = "requires an interactive Windows desktop; read-only lookup"]
+    fn explicit_titleless_taskbar_lookup() {
+        let taskbars = super::taskbar_windows().unwrap();
+        assert!(
+            !taskbars.is_empty(),
+            "no interactive Explorer taskbar available"
+        );
+        for taskbar in taskbars {
+            let found = super::operation_window(taskbar.hwnd, true)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.pid, taskbar.pid);
+            assert!(super::is_taskbar_window(&found));
+        }
+    }
+
     #[test]
     fn capture_clients_and_antitamper_targets_are_never_injected() {
         for exe in [

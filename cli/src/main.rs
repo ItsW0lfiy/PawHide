@@ -219,10 +219,12 @@ fn run() -> Result<()> {
                 allow_shell,
             } => {
                 std::panic::set_hook(Box::new(|_| {}));
-                let window = pawhide_core::platform::resolve(&hwnd)?
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("window disappeared"))?;
+                let handle = pawhide_core::parse_hwnd(&hwnd)?
+                    .ok_or_else(|| anyhow::anyhow!("use a 0x window handle"))?;
+                let window = pawhide_core::platform::operation_window(handle, allow_shell)?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("window disappeared or is not an eligible top-level window")
+                    })?;
                 anyhow::ensure!(
                     window.pid == pid && window.exe.eq_ignore_ascii_case(&exe),
                     "window owner changed; stale target rejected"

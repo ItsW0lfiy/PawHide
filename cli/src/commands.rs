@@ -181,9 +181,13 @@ pub fn change(
     verbose: bool,
 ) -> Result<()> {
     let chosen = target_windows(target, title, pick)?;
-    if chosen.len() > 1 && chosen.iter().any(|w| w.pid == platform::shell_pid()) && !allow_shell {
+    if chosen.len() > 1
+        && chosen
+            .iter()
+            .any(|w| w.exe.eq_ignore_ascii_case("explorer.exe") || w.pid == platform::shell_pid())
+    {
         bail!(
-            "refusing to protect the Windows shell as a group; choose one window with --pick and --allow-shell for experimental use"
+            "Explorer group operations are blocked; select an individual folder window with --title, --pick, or a 0x handle"
         )
     }
     let total = chosen.len();
