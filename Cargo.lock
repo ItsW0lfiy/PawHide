@@ -2227,6 +2227,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pawhide-xtask"
+version = "0.3.3"
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
