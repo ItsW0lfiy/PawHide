@@ -62,7 +62,7 @@ fn run() -> Result<(), String> {
         .ok_or("cannot find PawHide workspace root")?
         .to_path_buf();
 
-    cargo(&root, &["fmt", "--all", "--check"], "Check Rust formatting")?;
+    cargo(&root, &["fmt", "--all"], "Format Rust sources")?;
     cargo(
         &root,
         &[

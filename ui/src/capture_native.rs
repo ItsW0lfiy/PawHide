@@ -38,7 +38,10 @@ use windows::{
 
 pub const TARGET_FPS: u64 = 60;
 pub struct PreviewFrame {
-    pub image: eframe::egui::ColorImage,
+    /// Straight-alpha RGBA pixels, ready for Slint's SharedPixelBuffer.
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
 }
 #[derive(Default)]
 struct Counters {
@@ -49,7 +52,7 @@ struct Counters {
 
 pub struct CaptureSession {
     latest: Arc<Mutex<Option<PreviewFrame>>>,
-    recycle: Arc<Mutex<Vec<Vec<eframe::egui::Color32>>>>,
+    recycle: Arc<Mutex<Vec<Vec<u8>>>>,
     counters: Arc<Counters>,
     error: Arc<Mutex<Option<String>>>,
     stop: Arc<AtomicBool>,
@@ -61,7 +64,6 @@ impl CaptureSession {
         monitor: usize,
         include_cursor: bool,
         native_resolution: bool,
-        repaint: Option<eframe::egui::Context>,
     ) -> Self {
         let latest = Arc::new(Mutex::new(None));
         let recycle = Arc::new(Mutex::new(Vec::new()));
@@ -88,7 +90,6 @@ impl CaptureSession {
                         latest: &slot,
                         buffers: &buffers,
                         counters: &stats,
-                        repaint: repaint.as_ref(),
                     },
                 )
             }));
@@ -120,7 +121,7 @@ impl CaptureSession {
         if let Ok(mut pool) = self.recycle.lock()
             && pool.len() < 3
         {
-            pool.push(frame.image.pixels);
+            pool.push(frame.rgba);
         }
     }
     pub fn counts(&self) -> (u64, u64, u64) {
@@ -175,9 +176,8 @@ impl Drop for Apartment {
 
 struct FrameOutput<'a> {
     latest: &'a Mutex<Option<PreviewFrame>>,
-    buffers: &'a Mutex<Vec<Vec<eframe::egui::Color32>>>,
+    buffers: &'a Mutex<Vec<Vec<u8>>>,
     counters: &'a Counters,
-    repaint: Option<&'a eframe::egui::Context>,
 }
 
 fn capture_loop(
@@ -191,7 +191,6 @@ fn capture_loop(
         latest,
         buffers,
         counters,
-        repaint,
     } = output;
     unsafe { RoInitialize(RO_INIT_MULTITHREADED) }
         .map_err(|e| format!("WinRT initialization: {e}"))?;
@@ -365,12 +364,10 @@ fn capture_loop(
                 && let Ok(mut pool) = buffers.lock()
                 && pool.len() < 3
             {
-                pool.push(old.image.pixels);
+                pool.push(old.rgba);
             }
             counters.processed.fetch_add(1, Ordering::Relaxed);
-            if let Some(ctx) = repaint {
-                ctx.request_repaint();
-            }
+
             counters
                 .processing_us
                 .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -635,7 +632,7 @@ impl Readback {
     unsafe fn take_ready(
         &mut self,
         ctx: &ID3D11DeviceContext,
-        buffers: &Mutex<Vec<Vec<eframe::egui::Color32>>>,
+        buffers: &Mutex<Vec<Vec<u8>>>,
     ) -> windows::core::Result<Option<PreviewFrame>> {
         unsafe {
             let Some(&index) = self.pending.front() else {
@@ -668,20 +665,18 @@ impl Readback {
                 .ok()
                 .and_then(|mut pool| pool.pop())
                 .unwrap_or_default();
-            pixels.resize(width * height, eframe::egui::Color32::BLACK);
-            for (y, row) in pixels.chunks_exact_mut(width).enumerate() {
+            pixels.resize(width * height * 4, 0);
+            for (y, row) in pixels.chunks_exact_mut(width * 4).enumerate() {
                 let src = std::slice::from_raw_parts(
                     (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
                     width * 4,
                 );
-                for (pixel, output) in src.as_chunks::<4>().0.iter().zip(row) {
-                    *output = eframe::egui::Color32::from_rgb(pixel[2], pixel[1], pixel[0]);
+                for (input, output) in src.chunks_exact(4).zip(row.chunks_exact_mut(4)) {
+                    output.copy_from_slice(&[input[2], input[1], input[0], 255]);
                 }
             }
             ctx.Unmap(target, 0);
-            Ok(Some(PreviewFrame {
-                image: eframe::egui::ColorImage::new([width, height], pixels),
-            }))
+            Ok(Some(PreviewFrame { rgba: pixels, width: width as u32, height: height as u32 }))
         }
     }
 }
@@ -781,7 +776,7 @@ mod tests {
                 thread::sleep(Duration::from_millis(1));
             };
             let elapsed = started.elapsed();
-            for pixel in frame.image.pixels.iter().map(|p| p.to_array()) {
+            for pixel in frame.rgba.chunks_exact(4) {
                 for (actual, expected) in pixel.iter().zip([171u8, 83, 31, 255]) {
                     assert!(
                         actual.abs_diff(expected) <= 2,

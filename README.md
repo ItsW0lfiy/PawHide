@@ -2,7 +2,7 @@
 
 ![Original Hidden Paw emblem](ui/assets/pawhide.png)
 
-PawHide is a native Rust utility for Windows. It excludes selected top-level windows from compatible screen captures while keeping them fully visible and usable on your physical monitor. The CLI, egui GUI, and affinity agent share the same capture-only purpose.
+PawHide is a native Rust utility for Windows. It excludes selected top-level windows from compatible screen captures while keeping them fully visible and usable on your physical monitor. the CLI, Slint GUI, and affinity agent share the same capture-only purpose.
 
 This is a **v0.3.3 development build**, not a v1.0 release. An `Excluded` status confirms Windows affinity readback, **not the actual output of Discord or every capture backend**. Verify a real test stream before sharing sensitive content. See [capture boundaries](docs/CAPTURE_BOUNDARY.md) and the [release checklist](docs/RELEASE_READINESS.md).
 
@@ -24,7 +24,7 @@ cargo all
 ```
 
 `cargo all` is a Cargo alias backed by the repository's small Rust build task.
-It runs formatting, Clippy, release compilation, workspace tests, installer
+It formats Rust sources, runs Clippy, release compilation, workspace tests, installer
 fixtures and then produces all three files under `dist/`: the portable
 `PawHide-Windows-x64.zip`, its SHA-256 manifest and the **online**
 `PawHide-setup.exe`. No separate NSIS install or command is necessary. It uses
@@ -44,7 +44,7 @@ A release build can fail with Windows "Access is denied" if AutoHide is using
 
 Keep `target/release/pawhide.exe`, `PawHideUI.exe`, and `pawhide_agent.dll` together. Stop the background monitor and close PawHide before rebuilding files that are in use. A target application may retain an agent DLL until it exits; after an upgrade, restart affected applications if the agent export is incompatible. Do not forcibly unload code executing inside another process.
 
-Windows CI performs formatting, linting, build, tests, installer fixture tests, and NSIS compilation. It uploads artifacts and **does not publish releases**, including on tag pushes. A Linux build cannot validate the Windows UI or capture engine.
+Windows CI formats, lints, builds, tests, runs installer fixture tests, and compiles the NSIS installer. It uploads artifacts and **does not publish releases**, including on tag pushes. A Linux build cannot validate the Windows UI or capture engine.
 
 ## CLI
 
@@ -91,9 +91,14 @@ pawhide version
 Use `--title` to match a specific window by partial title. It intentionally refuses ambiguous multiple matches unless you use `--pick`; the numbered picker is a **terminal selector**, not a mouse-based desktop picker. The GUI offers per-window selection. For automated scripts, use the `--json` options and exit status instead of parsing human-readable output.
 
 
-## Native GUI
+## Native GUI — Slint
 
-`PawHideUI.exe` opens at 900 x 580 logical pixels, resizes down to 800 x 520, follows Windows DPI scaling, and has no maximize button. The original Hidden Paw emblem is used throughout.
+The GUI is implemented in **Slint** (Winit/FemtoVG), replacing egui outright. The original Rust protection/AutoHide/Windows Graphics Capture backend is preserved. The window retains its original executable name and native Windows decorations; layout and controls use graphite surfaces with purple accents. Slint's required `AboutSlint` attribution badge is in Settings.
+
+**Migration build note:** this changes the Cargo dependency graph. The first `cargo all` automatically resolves and rewrites `Cargo.lock`, and formats the Rust sources. Commit the resulting lockfile after a successful Windows build before expecting reproducible `--locked` builds or releasing a Slint binary. The older egui build remains available through the previously published beta release only; there is no second frontend in `main`.
+
+
+`PawHideUI.exe` targets 900 x 580 logical pixels, resizes down to 800 x 520, and follows Windows DPI scaling with native window controls. The original Hidden Paw emblem is used throughout.
 
 - **Windows:** searchable application table, status filters, sortable headings, executable icons, and expandable top-level windows. Explorer group actions stay blocked; expand to select individual folder windows. Long titles have tooltips.
 - **Rules:** application AutoHide and protected Explorer folders. Saving a rule schedules monitoring without primary Start/Stop controls.
@@ -127,9 +132,9 @@ The existing `%LOCALAPPDATA%\PawHide\config.json` application/folder format rema
 
 ## Capture engine and performance
 
-The Windows Graphics Capture service continues across page navigation. A bottom-right status chip returns to Capture; an optional floating thumbnail is available in Settings. Display selection is preserved by device name across topology changes; a disconnected source is not silently replaced by a different display.
+Windows Graphics Capture continues across page navigation. The Slint frontend presents the live preview on Capture and accepts the thumbnail preference. A separate floating thumbnail is still pending validation. Display selection is preserved by device name across topology changes; a disconnected source is not silently replaced by a different display.
 
-Acquisition wakes on WGC frame events, drains stale frames, and counts distinct source timestamps. A reusable three-texture staging ring uses nonblocking readback. Larger sources scale on the GPU to fit 1920 x 1080 with the native D3D11 video processor; native-resolution preview is optional. Opaque pixels move directly into egui's image buffer, avoiding a second full-frame conversion. The visible preview wakes when a completed frame is ready. Cursor changes update the session without restarting it.
+Acquisition wakes on WGC frame events, drains stale frames, and counts distinct source timestamps. A reusable three-texture staging ring uses nonblocking readback. Larger sources scale on the GPU to fit 1920 x 1080 with the native D3D11 video processor; native-resolution preview is optional. Opaque pixels move into a reusable RGBA buffer before transfer into Slint's image model. Slint polls for the newest completed frame without waiting for a capture to unblock the GUI. Cursor changes update the session without restarting it.
 
 The target is smooth 60 FPS on an actively updating supported source. Counters report acquired frames, processed readbacks, and distinct images submitted to a visible preview separately; static sources and hidden previews can report lower rates. Initial development-session samples were approximately 50-56 FPS; sustained 60 FPS remains an acceptance item, not a verified claim. No duplicate frames are manufactured. HDR tone mapping and recording are not implemented. No FFmpeg dependency is used.
 

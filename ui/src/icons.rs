@@ -162,7 +162,7 @@ unsafe fn render_icon(icon: *mut c_void, owned: bool) -> Option<IconPixels> {
                 } else {
                     from[3]
                 };
-                // GDI writes premultiplied BGRA. Convert to straight RGBA for egui.
+                // GDI writes premultiplied BGRA. Convert to straight RGBA for Slint.
                 let channel = |value: u8| {
                     if alpha == 0 {
                         0

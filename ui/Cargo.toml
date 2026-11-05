@@ -12,8 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 pawhide-core = { path = "../core" }
-eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+# Native Slint/Winit frontend; no egui, WebView2 or browser engine.
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "compat-1-18", "accessibility"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
@@ -21,9 +21,6 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"
 ] }
 
-
-# Optional native capture-test page. Windows.Graphics.Capture / Direct3D 11,
-# already part of the Windows API bindings; no FFmpeg dependency or sidecar.
 windows = { version = "=0.62.2", features = [
   "Foundation", "Graphics", "Graphics_Capture", "Graphics_DirectX",
   "Graphics_DirectX_Direct3D11", "Win32_Foundation", "Win32_Graphics_Gdi",
@@ -32,6 +29,9 @@ windows = { version = "=0.62.2", features = [
   "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11",
   "Win32_System_WinRT_Graphics_Capture"
 ] }
+
+[build-dependencies]
+slint-build = "=1.18.1"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

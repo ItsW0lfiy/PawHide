@@ -1,0 +1,504 @@
+// PawHide's only GUI frontend. Rust/Slint; no egui, webview or local server.
+// Slint desktop royalty-free terms: visible credit in Settings / About.
+import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct WindowEntry {
+    name: string,
+    count: string,
+    state: string,
+    action: string,
+    icon: image,
+    enabled: bool,
+    expandable: bool,
+    child: bool,
+}
+
+export component PawHideWindow inherits Window {
+    title: "PawHide";
+    width: 900px;
+    height: 580px;
+    min-width: 800px;
+    min-height: 520px;
+    background: #14141b;
+    default-font-family: "Segoe UI";
+
+    in-out property <int> page: 0;
+    in-out property <string> search: "";
+    in-out property <string> new-application: "";
+    in-out property <string> new-folder: "";
+    in-out property <int> filter: 0;
+    in property <[WindowEntry]> window-rows;
+    in property <[string]> applications;
+    in property <[string]> folders;
+    in property <[string]> activity;
+    in property <string> auto-status: "Not configured";
+    in property <string> status-message: "Ready";
+    in property <string> excluded-count: "0 excluded";
+    in property <bool> busy: false;
+    in property <bool> has-error: false;
+
+    in property <[string]> displays;
+    in-out property <int> display-index: 0;
+    in property <image> preview;
+    in property <bool> capture-running: false;
+    in property <string> capture-stats: "Source — · Processed — · Preview —";
+    in property <string> capture-error: "";
+    in-out property <bool> include-cursor: false;
+    in-out property <bool> native-resolution: false;
+    in-out property <bool> thumbnail: false;
+    in-out property <bool> show-system: false;
+
+    callback window-action(int);
+    callback window-expand(int);
+    callback search-changed();
+    callback add-application(string);
+    callback remove-application(string);
+    callback add-folder(string);
+    callback remove-folder(string);
+    callback capture-toggle();
+    callback display-selected(int);
+    callback preferences-changed();
+    callback startup-action(string);
+    callback taskbar-action(string);
+    callback cancel-operation();
+
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        Rectangle {
+            height: 56px;
+            background: #1c1b24;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 18px;
+                spacing: 10px;
+                alignment: start;
+                Image {
+                    source: @image-url("../assets/pawhide.png");
+                    width: 32px;
+                    height: 32px;
+                    image-fit: contain;
+                }
+                VerticalLayout {
+                    spacing: 0px;
+                    Text { text: "PawHide"; color: #f3f1f8; font-size: 17px; font-weight: 700; }
+                    Text { text: "CAPTURE PRIVACY"; color: #9e95b5; font-size: 9px; letter-spacing: 1px; }
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                Rectangle {
+                    width: 100px;
+                    height: 24px;
+                    border-radius: 7px;
+                    background: #332543;
+                    Text {
+                        text: "SLINT UI";
+                        color: #d6baf8;
+                        font-size: 10px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: #14141b;
+            HorizontalLayout {
+                padding: 0px;
+                spacing: 0px;
+
+                Rectangle {
+                    width: 177px;
+                    background: #191820;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 5px;
+                        Text {
+                            text: "WORKSPACE";
+                            color: #897f99;
+                            font-size: 10px;
+                            font-weight: 600;
+                            height: 25px;
+                            vertical-alignment: center;
+                        }
+                        for item[index] in ["Windows", "Rules", "Capture", "Activity", "Settings"] : Rectangle {
+                            height: 40px;
+                            border-radius: 8px;
+                            background: root.page == index ? #403051 : transparent;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 8px;
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 3px;
+                                    border-radius: 2px;
+                                    background: root.page == index ? #c69cf1 : transparent;
+                                }
+                                Text {
+                                    text: item;
+                                    color: root.page == index ? #f4eafa : #a5a1af;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.page = index; }
+                            }
+                        }
+                        Rectangle { vertical-stretch: 1; background: transparent; }
+                        Text {
+                            text: "PawHide 0.3.3";
+                            color: #847c90;
+                            font-size: 10px;
+                        }
+                        Text {
+                            text: root.auto-status == "Running" ? "● AutoHide active" : "○ AutoHide " + root.auto-status;
+                            color: root.auto-status == "Running" ? #76c3a2 : #aa9ab8;
+                            font-size: 10px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: #14141b;
+
+                    if root.page == 0 : VerticalLayout {
+                        padding: 17px;
+                        spacing: 10px;
+                        Text { text: "Windows"; color: #f5f0fa; font-size: 21px; font-weight: 700; height: 27px; }
+                        Text {
+                            text: "Exclude application windows from compatible captures. They stay visible on your desktop.";
+                            color: #9f9aa9;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        LineEdit {
+                            text: root.search;
+                            placeholder-text: "Search applications or window titles";
+                            edited => { root.search = self.text; root.search-changed(); }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            for label[index] in ["All", "Excluded", "Visible", "Attention"] : Rectangle {
+                                width: index == 3 ? 116px : 81px;
+                                height: 28px;
+                                border-radius: 7px;
+                                background: root.filter == index ? #463157 : #24232c;
+                                Text {
+                                    text: label;
+                                    color: root.filter == index ? #f2dfff : #aca6b6;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea { mouse-cursor: pointer; clicked => { root.filter = index; root.search-changed(); } }
+                            }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                        }
+                        Rectangle {
+                            height: 30px;
+                            background: #26232f;
+                            border-radius: 5px;
+                            HorizontalLayout {
+                                padding-left: 9px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Text { text: "APPLICATION"; horizontal-stretch: 1; color: #c6becf; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                Text { text: "WINDOWS"; width: 65px; color: #c6becf; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                Text { text: "CAPTURE"; width: 137px; color: #c6becf; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                Text { text: "ACTION"; width: 82px; color: #c6becf; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                            }
+                        }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                spacing: 3px;
+                                for row[index] in root.window-rows : Rectangle {
+                                    height: row.child ? 38px : 45px;
+                                    border-radius: 6px;
+                                    background: Math.mod(index, 2) == 0 ? #201f29 : #1b1b24;
+                                    HorizontalLayout {
+                                        padding-left: 9px;
+                                        padding-right: 8px;
+                                        spacing: 8px;
+                                        if row.child : Rectangle { width: 14px; background: transparent; }
+                                        Image { source: row.icon; width: 24px; height: 24px; image-fit: contain; }
+                                        Text {
+                                            text: row.name;
+                                            horizontal-stretch: 1;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                            color: row.child ? #b8a9c7 : #eeeaf4;
+                                            font-size: 11px;
+                                        }
+                                        Text {
+                                            text: row.count;
+                                            width: 65px;
+                                            color: #a8a2b0;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: row.state;
+                                            width: 137px;
+                                            color: row.state == "Excluded" ? #83c9ad : row.state == "Visible" ? #bbb4c3 : #e3b180;
+                                            font-size: 10px;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        Button {
+                                            text: row.action;
+                                            width: 82px;
+                                            enabled: (row.enabled || row.expandable) && !root.busy;
+                                            clicked => {
+                                                if row.expandable { root.window-expand(index); }
+                                                else { root.window-action(index); }
+                                            }
+                                        }
+                                    }
+                                }
+                                Rectangle { vertical-stretch: 1; background: transparent; }
+                            }
+                        }
+                    }
+
+                    if root.page == 1 : VerticalLayout {
+                        padding: 17px;
+                        spacing: 12px;
+                        Text { text: "Rules"; color: #f5f0fa; font-size: 21px; font-weight: 700; }
+                        Text {
+                            text: "AutoHide: " + root.auto-status + " · Saved rules monitor applications and folders automatically.";
+                            color: #a8a0b5;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        Text { text: "APPLICATION RULES"; color: #c9b5e0; font-size: 11px; font-weight: 700; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            LineEdit {
+                                text: root.new-application;
+                                placeholder-text: "Example: application.exe";
+                                horizontal-stretch: 1;
+                                edited => { root.new-application = self.text; }
+                            }
+                            Button {
+                                text: "Add rule";
+                                enabled: !root.busy;
+                                clicked => { root.add-application(root.new-application); root.new-application = ""; }
+                            }
+                        }
+                        ScrollView {
+                            height: 113px;
+                            VerticalLayout {
+                                spacing: 5px;
+                                for rule in root.applications : Rectangle {
+                                    height: 30px;
+                                    background: #24232d;
+                                    border-radius: 6px;
+                                    HorizontalLayout {
+                                        padding-left: 9px;
+                                        padding-right: 8px;
+                                        Text { text: rule; horizontal-stretch: 1; color: #dfd8e7; vertical-alignment: center; font-size: 12px; }
+                                        Button { text: "Remove"; enabled: !root.busy; clicked => { root.remove-application(rule); } }
+                                    }
+                                }
+                            }
+                        }
+                        Text { text: "PROTECTED EXPLORER FOLDERS"; color: #c9b5e0; font-size: 11px; font-weight: 700; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            LineEdit {
+                                text: root.new-folder;
+                                placeholder-text: "Example: C:\\Path\\To\\Folder";
+                                horizontal-stretch: 1;
+                                edited => { root.new-folder = self.text; }
+                            }
+                            Button { text: "Add rule"; enabled: !root.busy; clicked => { root.add-folder(root.new-folder); root.new-folder = ""; } }
+                        }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                spacing: 5px;
+                                for rule in root.folders : Rectangle {
+                                    height: 30px;
+                                    background: #24232d;
+                                    border-radius: 6px;
+                                    HorizontalLayout {
+                                        padding-left: 9px;
+                                        padding-right: 8px;
+                                        Text { text: rule; horizontal-stretch: 1; overflow: elide; color: #dfd8e7; vertical-alignment: center; font-size: 11px; }
+                                        Button { text: "Remove"; enabled: !root.busy; clicked => { root.remove-folder(rule); } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.page == 2 : VerticalLayout {
+                        padding: 17px;
+                        spacing: 12px;
+                        Text { text: "Capture"; color: #f5f0fa; font-size: 21px; font-weight: 700; }
+                        Text { text: "Native Windows Graphics Capture preview. Always inspect the actual Discord output."; color: #9f9aa9; font-size: 11px; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            ComboBox {
+                                model: root.displays;
+                                current-index: root.display-index;
+                                horizontal-stretch: 1;
+                                selected(value) => { root.display-selected(self.current-index); }
+                            }
+                            Button {
+                                text: root.capture-running ? "Pause" : "Start preview";
+                                clicked => { root.capture-toggle(); }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            CheckBox {
+                                text: "Include cursor";
+                                checked: root.include-cursor;
+                                toggled => { root.include-cursor = self.checked; root.preferences-changed(); }
+                            }
+                            CheckBox {
+                                text: "Native resolution";
+                                checked: root.native-resolution;
+                                toggled => { root.native-resolution = self.checked; root.preferences-changed(); }
+                            }
+                        }
+                        Text { text: root.capture-stats; color: #beb5c9; font-size: 11px; }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: #0c0c12;
+                            border-radius: 9px;
+                            Image {
+                                source: root.preview;
+                                image-fit: contain;
+                                x: 4px;
+                                y: 4px;
+                                width: parent.width - 8px;
+                                height: parent.height - 8px;
+                                visible: root.capture-running;
+                            }
+                            Text {
+                                text: root.capture-error != "" ? root.capture-error :
+                                    root.capture-running ? "Waiting for a frame…" : "Choose a display and start the preview.";
+                                color: #a9a2b7;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                                x: 18px;
+                                width: parent.width - 36px;
+                                height: parent.height;
+                                visible: !root.capture-running || root.capture-error != "";
+                            }
+                        }
+                    }
+
+                    if root.page == 3 : VerticalLayout {
+                        padding: 17px;
+                        spacing: 12px;
+                        Text { text: "Activity"; color: #f5f0fa; font-size: 21px; font-weight: 700; }
+                        Text { text: "Local operation and AutoHide diagnostics. No telemetry is sent."; color: #a19aaa; font-size: 11px; }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                spacing: 6px;
+                                for entry in root.activity : Rectangle {
+                                    min-height: 37px;
+                                    background: #24232c;
+                                    border-radius: 7px;
+                                    Text {
+                                        x: 11px; y: 8px;
+                                        width: parent.width - 22px;
+                                        text: entry;
+                                        color: #d1c9db;
+                                        font-size: 11px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                                Rectangle { vertical-stretch: 1; background: transparent; }
+                            }
+                        }
+                    }
+
+                    if root.page == 4 : VerticalLayout {
+                        padding: 17px;
+                        spacing: 14px;
+                        Text { text: "Settings"; color: #f5f0fa; font-size: 21px; font-weight: 700; }
+                        Text { text: "GENERAL"; color: #c9b5e0; font-size: 11px; font-weight: 700; }
+                        CheckBox {
+                            text: "Include system and helper windows";
+                            checked: root.show-system;
+                            toggled => { root.show-system = self.checked; root.preferences-changed(); }
+                        }
+                        Text { text: "CAPTURE"; color: #c9b5e0; font-size: 11px; font-weight: 700; }
+                        CheckBox {
+                            text: "Include mouse cursor";
+                            checked: root.include-cursor;
+                            toggled => { root.include-cursor = self.checked; root.preferences-changed(); }
+                        }
+                        CheckBox {
+                            text: "Native-resolution preview (higher GPU and memory use)";
+                            checked: root.native-resolution;
+                            toggled => { root.native-resolution = self.checked; root.preferences-changed(); }
+                        }
+                        CheckBox {
+                            text: "Floating preview thumbnail on other pages";
+                            checked: root.thumbnail;
+                            toggled => { root.thumbnail = self.checked; root.preferences-changed(); }
+                        }
+                        Text { text: "WINDOWS SIGN-IN"; color: #c9b5e0; font-size: 11px; font-weight: 700; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button { text: "Enable"; clicked => { root.startup-action("enable"); } }
+                            Button { text: "Disable"; clicked => { root.startup-action("disable"); } }
+                            Button { text: "Status"; clicked => { root.startup-action("status"); } }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                        }
+                        Text { text: "EXPERIMENTAL TASKBAR CAPTURE"; color: #c9b5e0; font-size: 11px; font-weight: 700; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button { text: "Exclude"; clicked => { root.taskbar-action("hide"); } }
+                            Button { text: "Restore"; clicked => { root.taskbar-action("show"); } }
+                            Button { text: "Inspect"; clicked => { root.taskbar-action("status"); } }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                        }
+                        Rectangle { vertical-stretch: 1; background: transparent; }
+                        AboutSlint { height: 29px; }
+                        Text {
+                            text: "Window affinity readback does not guarantee Discord or every capture backend excludes the window.";
+                            color: #d8b47f;
+                            font-size: 10px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 33px;
+            background: #1c1b24;
+            HorizontalLayout {
+                padding-left: 15px;
+                padding-right: 14px;
+                spacing: 12px;
+                Text { text: root.excluded-count; color: #86c7a8; font-size: 11px; vertical-alignment: center; }
+                Rectangle { width: 1px; background: #39323f; }
+                Text { text: "AutoHide: " + root.auto-status; color: #a49ab1; font-size: 11px; vertical-alignment: center; }
+                Text { text: root.status-message; horizontal-stretch: 1; overflow: elide; color: root.has-error ? #e0a377 : #b4a6c1; font-size: 10px; vertical-alignment: center; }
+                if root.busy : Button {
+                    text: "Cancel";
+                    clicked => { root.cancel-operation(); }
+                }
+            }
+        }
+    }
+}
