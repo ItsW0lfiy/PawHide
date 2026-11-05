@@ -181,7 +181,7 @@ export component PawHideWindow inherits Window {
                         LineEdit {
                             text: root.search;
                             placeholder-text: "Search applications or window titles";
-                            edited => { root.search = self.text; root.search-changed(); }
+                            edited(value) => { root.search = value; root.search-changed(); }
                         }
                         HorizontalLayout {
                             spacing: 8px;
@@ -285,7 +285,7 @@ export component PawHideWindow inherits Window {
                                 text: root.new-application;
                                 placeholder-text: "Example: application.exe";
                                 horizontal-stretch: 1;
-                                edited => { root.new-application = self.text; }
+                                edited(value) => { root.new-application = value; }
                             }
                             Button {
                                 text: "Add rule";
@@ -317,7 +317,7 @@ export component PawHideWindow inherits Window {
                                 text: root.new-folder;
                                 placeholder-text: "Example: C:\\Path\\To\\Folder";
                                 horizontal-stretch: 1;
-                                edited => { root.new-folder = self.text; }
+                                edited(value) => { root.new-folder = value; }
                             }
                             Button { text: "Add rule"; enabled: !root.busy; clicked => { root.add-folder(root.new-folder); root.new-folder = ""; } }
                         }
