@@ -671,7 +671,7 @@ impl Readback {
                     (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
                     width * 4,
                 );
-                for (input, output) in src.chunks_exact(4).zip(row.chunks_exact_mut(4)) {
+                for (input, output) in src.as_chunks::<4>().0.iter().zip(row.as_chunks_mut::<4>().0.iter_mut()) {
                     output.copy_from_slice(&[input[2], input[1], input[0], 255]);
                 }
             }
@@ -776,7 +776,7 @@ mod tests {
                 thread::sleep(Duration::from_millis(1));
             };
             let elapsed = started.elapsed();
-            for pixel in frame.rgba.chunks_exact(4) {
+            for pixel in frame.rgba.as_chunks::<4>().0 {
                 for (actual, expected) in pixel.iter().zip([171u8, 83, 31, 255]) {
                     assert!(
                         actual.abs_diff(expected) <= 2,
