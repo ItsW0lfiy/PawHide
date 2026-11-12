@@ -132,16 +132,24 @@ fn stop() -> Result<()> {
     let success = unsafe { SetEvent(h) };
     unsafe { CloseHandle(h) };
     ensure!(success != 0, "could not signal AutoHide monitor");
-    for _ in 0..20 {
+    // A monitor scan can be waiting on a bounded 8-second injection helper
+    // or 3-second Explorer snapshot. Two seconds was not enough to confirm
+    // graceful shutdown, causing false "stuck" reports.
+    let deadline = Instant::now() + Duration::from_secs(13);
+    loop {
         if !is_running() {
             println!(
                 "AutoHide stopped. Existing exclusions remain until explicitly shown or windows close."
             );
             return Ok(());
         }
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "AutoHide stop was signaled but its process did not exit within 13 seconds. Inspect PawHide auto.log and the pawhide.exe auto run process"
+            );
+        }
         thread::sleep(Duration::from_millis(100));
     }
-    anyhow::bail!("stop was requested, but AutoHide has not exited yet")
 }
 
 pub fn command(command: AutoCommand) -> Result<()> {
