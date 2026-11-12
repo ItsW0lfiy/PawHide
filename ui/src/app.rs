@@ -55,7 +55,7 @@ fn physical_monitors() -> Result<Vec<Display>, String> {
         });
         1
     }
-    let mut displays = Vec::new();
+    let mut displays: Vec<Display> = Vec::new();
     if unsafe { EnumDisplayMonitors(
         std::ptr::null_mut(),
         std::ptr::null_mut(),
@@ -482,7 +482,10 @@ impl Runtime {
         if self.busy || record.windows.is_empty() { return; }
         let windows = record.windows;
         let protect = !windows.iter().all(|w| w.affinity == Some(EXCLUDED));
-        if windows.iter().any(|w| !platform::can_protect_window(w)) { return; }
+        if windows.iter().any(|w| !platform::can_protect_window(w)) {
+            self.record("Window is unsupported", "PawHide cannot safely exclude this target. No protection was applied.", true, ui);
+            return;
+        }
         for w in &windows { self.failed_windows.remove(&(w.hwnd, w.pid)); }
         self.spawn_work(ui, if protect { "Applying capture exclusion…" } else { "Restoring capture…" }, move |cancel| {
             let total = windows.len();
