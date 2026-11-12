@@ -239,6 +239,8 @@ struct Runtime {
     monitor_running: bool,
     monitor_starting: bool,
     monitor_error: bool,
+    backend_checked: bool,
+    backend_issue: Option<String>,
     last_discovery: Instant,
     last_monitor_attempt: Instant,
     last_log: String,
@@ -259,7 +261,8 @@ impl Runtime {
             capture: Capture::new(), activity: VecDeque::new(),
             cancel: Arc::new(AtomicBool::new(false)), busy: false,
             discovering: false, monitor_running: false, monitor_starting: false,
-            monitor_error: false, last_discovery: Instant::now() - Duration::from_secs(10),
+            monitor_error: false, backend_checked: false, backend_issue: None,
+            last_discovery: Instant::now() - Duration::from_secs(10),
             last_monitor_attempt: Instant::now() - Duration::from_secs(60),
             last_log: String::new(), dirty: true,
         }
@@ -283,7 +286,8 @@ impl Runtime {
         self.last_discovery = Instant::now();
         let sender = self.snapshot_tx.clone();
         thread::spawn(move || {
-            let result: Result<Snapshot, String> = (|| {
+            let result = std::panic::catch_unwind(|| {
+                let load: Result<Snapshot, String> = (|| {
                 let cfg = config::load().map_err(|e| format!("Configuration: {e:#}"))?;
                 let windows = platform::windows().map_err(|e| format!("Window discovery: {e:#}"))?;
                 let log = config::config_path().ok()
@@ -293,12 +297,37 @@ impl Runtime {
                     windows, config: cfg, monitor_running: monitor::running(),
                     log: log.chars().rev().take(16_384).collect::<String>().chars().rev().collect(),
                 })
-            })();
+                })();
+                load
+            }).unwrap_or_else(|_| Err("Window discovery worker crashed. The window list could not be refreshed.".into()));
             let _ = sender.send(result);
         });
     }
+    fn check_backend(&mut self, ui: &PawHideWindow) {
+        if self.backend_checked { return; }
+        self.backend_checked = true;
+        let result: Result<(), String> = (|| {
+            let exe = std::env::current_exe()
+                .map_err(|err| format!("Cannot locate PawHide executable: {err}"))?;
+            for filename in ["pawhide.exe", "pawhide_agent.dll"] {
+                let required = exe.with_file_name(filename);
+                if !required.is_file() {
+                    return Err(format!(
+                        "Missing companion binary: {}. PawHideUI.exe, pawhide.exe and pawhide_agent.dll must be built and installed together. Run cargo build --workspace --release, or use the full portable/installer distribution.",
+                        required.display()
+                    ));
+                }
+            }
+            Ok(())
+        })();
+        if let Err(issue) = result {
+            self.backend_issue = Some(issue.clone());
+            self.monitor_error = true;
+            self.record("Capture protection is unavailable", issue, true, ui);
+        }
+    }
     fn ensure_monitor(&mut self) {
-        if self.monitor_running || self.monitor_starting ||
+        if self.backend_issue.is_some() || self.monitor_running || self.monitor_starting ||
             (self.config.applications.is_empty() && self.config.folders.is_empty()) ||
             self.last_monitor_attempt.elapsed() < Duration::from_secs(30)
         { return; }
@@ -306,9 +335,14 @@ impl Runtime {
         self.last_monitor_attempt = Instant::now();
         let sender = self.monitor_tx.clone();
         thread::spawn(move || {
-            let _ = sender.send(operations::command(
-                &["auto".into(), "start".into()], &AtomicBool::new(false),
-            ));
+            let result = std::panic::catch_unwind(|| {
+                operations::command(
+                    &["auto".into(), "start".into()], &AtomicBool::new(false),
+                )
+            }).unwrap_or_else(|_| {
+                Err("AutoHide startup helper crashed before reporting its result. Check the installation binaries and AutoHide log.".into())
+            });
+            let _ = sender.send(result);
         });
     }
     fn monitor_state(&self) -> &'static str {
@@ -473,6 +507,10 @@ impl Runtime {
         self.dirty = false;
     }
     fn action_row(&mut self, ui: &PawHideWindow, index: usize) {
+        if let Some(issue) = self.backend_issue.clone() {
+            self.record("Cannot change capture protection", issue, true, ui);
+            return;
+        }
         let Some(record) = self.rows.get(index).cloned() else { return; };
         if record.expanded {
             if !self.expanded.insert(record.key.clone()) { self.expanded.remove(&record.key); }
@@ -518,6 +556,7 @@ impl Runtime {
         });
     }
     fn tick(&mut self, ui: &PawHideWindow) {
+        self.check_backend(ui);
         while let Ok(result) = self.snapshot_rx.try_recv() {
             self.discovering = false;
             match result {
