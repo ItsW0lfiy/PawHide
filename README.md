@@ -2,7 +2,7 @@
 
 ![Original Hidden Paw emblem](ui/assets/pawhide.png)
 
-PawHide is a native Rust utility for Windows. It excludes selected top-level windows from compatible screen captures while keeping them fully visible and usable on your physical monitor. the CLI, Slint GUI, and affinity agent share the same capture-only purpose.
+PawHide is a native Rust utility for Windows. It excludes selected top-level windows from compatible screen captures while keeping them fully visible and usable on your physical monitor. The CLI, Slint GUI, and affinity agent share the same capture-only purpose.
 
 This is a **v0.3.3 development build**, not a v1.0 release. An `Excluded` status confirms Windows affinity readback, **not the actual output of Discord or every capture backend**. Verify a real test stream before sharing sensitive content. See [capture boundaries](docs/CAPTURE_BOUNDARY.md) and the [release checklist](docs/RELEASE_READINESS.md).
 
@@ -16,6 +16,18 @@ cargo clippy --workspace --all-targets --locked
 cargo build --release --locked
 cargo test --workspace --locked
 ```
+
+To build and launch the Slint GUI **with the matching pawhide.exe and pawhide_agent.dll**, run:
+
+```powershell
+cargo app
+```
+
+Do not launch only `cargo run -p pawhide-ui` from a clean checkout: that
+compiles the GUI but may leave its companion CLI and DLL missing, causing **all**
+hide actions and AutoHide startup to fail. `cargo app` builds the complete
+debug workspace first. The release distribution similarly ships all three
+binaries together.
 
 To build, validate and package **everything in one command**, run:
 

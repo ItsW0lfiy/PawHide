@@ -50,17 +50,46 @@ fn powershell(root: &Path, script: &Path, label: &str) -> Result<(), String> {
 
 fn run() -> Result<(), String> {
     let mut arguments = env::args().skip(1);
-    if arguments.next().as_deref() != Some("all") || arguments.next().is_some() {
-        return Err("Usage: cargo all".into());
+    let task = arguments.next().unwrap_or_default();
+    if arguments.next().is_some() || !matches!(task.as_str(), "app" | "all") {
+        return Err("Usage: cargo app | cargo all".into());
     }
     if !cfg!(windows) {
-        return Err("PawHide distribution packaging requires Windows x64".into());
+        return Err("PawHide requires Windows x64".into());
     }
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("cannot find PawHide workspace root")?
         .to_path_buf();
+
+    if task == "app" {
+        // Building only the UI leaves the helper and agent DLL missing from
+        // target/debug. Build all companions into the *same* profile directory
+        // before running, while excluding the already-running task binary.
+        cargo(
+            &root,
+            &["build", "--workspace", "--exclude", "pawhide-xtask"],
+            "Build PawHide GUI, CLI helper and agent together",
+        )?;
+        let target_dir = env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.join("target"));
+        let target_dir = if target_dir.is_absolute() {
+            target_dir
+        } else {
+            root.join(target_dir)
+        };
+        let ui = target_dir.join("debug").join("PawHideUI.exe");
+        for name in ["PawHideUI.exe", "pawhide.exe", "pawhide_agent.dll"] {
+            let binary = target_dir.join("debug").join(name);
+            if !binary.is_file() {
+                return Err(format!("Missing required debug companion: {}", binary.display()));
+            }
+        }
+        run_command(Command::new(ui).current_dir(&root), "Launch PawHide GUI")?;
+        return Ok(());
+    }
 
     cargo(&root, &["fmt", "--all"], "Format Rust sources")?;
     cargo(
