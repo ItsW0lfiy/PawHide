@@ -904,11 +904,7 @@ fn style_native_caption() {
         return;
     }
     // COLORREF uses 0x00BBGGRR. Keep system window controls intact.
-    for (attribute, color) in [
-        (35u32, 0x00241B1C_u32),
-        (36, 0x00F8F1F3),
-        (34, 0x002F2126),
-    ] {
+    for (attribute, color) in [(35u32, 0x00241B1C_u32), (36, 0x00F8F1F3), (34, 0x002F2126)] {
         unsafe {
             windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(
                 hwnd,
