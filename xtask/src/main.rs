@@ -84,7 +84,10 @@ fn run() -> Result<(), String> {
         for name in ["PawHideUI.exe", "pawhide.exe", "pawhide_agent.dll"] {
             let binary = target_dir.join("debug").join(name);
             if !binary.is_file() {
-                return Err(format!("Missing required debug companion: {}", binary.display()));
+                return Err(format!(
+                    "Missing required debug companion: {}",
+                    binary.display()
+                ));
             }
         }
         run_command(Command::new(ui).current_dir(&root), "Launch PawHide GUI")?;

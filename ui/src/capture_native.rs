@@ -60,11 +60,7 @@ pub struct CaptureSession {
     worker: Option<JoinHandle<()>>,
 }
 impl CaptureSession {
-    pub fn start(
-        monitor: usize,
-        include_cursor: bool,
-        native_resolution: bool,
-    ) -> Self {
+    pub fn start(monitor: usize, include_cursor: bool, native_resolution: bool) -> Self {
         let latest = Arc::new(Mutex::new(None));
         let recycle = Arc::new(Mutex::new(Vec::new()));
         let counters = Arc::new(Counters::default());
@@ -671,12 +667,21 @@ impl Readback {
                     (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
                     width * 4,
                 );
-                for (input, output) in src.as_chunks::<4>().0.iter().zip(row.as_chunks_mut::<4>().0.iter_mut()) {
+                for (input, output) in src
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(row.as_chunks_mut::<4>().0.iter_mut())
+                {
                     output.copy_from_slice(&[input[2], input[1], input[0], 255]);
                 }
             }
             ctx.Unmap(target, 0);
-            Ok(Some(PreviewFrame { rgba: pixels, width: width as u32, height: height as u32 }))
+            Ok(Some(PreviewFrame {
+                rgba: pixels,
+                width: width as u32,
+                height: height as u32,
+            }))
         }
     }
 }

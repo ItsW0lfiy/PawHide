@@ -2,6 +2,8 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod app;
+#[cfg(windows)]
 mod capture_native;
 #[cfg(windows)]
 mod icons;
@@ -9,8 +11,6 @@ mod icons;
 mod operations;
 #[cfg(windows)]
 mod single_instance;
-#[cfg(windows)]
-mod app;
 
 #[cfg(not(windows))]
 fn main() {

@@ -1,7 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=src/pawhide.slint");
-    slint_build::compile("src/pawhide.slint")
-        .expect("Slint interface failed to compile");
+    slint_build::compile("src/pawhide.slint").expect("Slint interface failed to compile");
 
     println!("cargo:rerun-if-changed=assets/PawHide.ico");
     #[cfg(windows)]
