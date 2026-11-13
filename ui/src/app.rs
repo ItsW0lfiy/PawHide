@@ -891,10 +891,7 @@ fn with_runtime<F: FnOnce(&mut Runtime, &PawHideWindow)>(
 fn style_native_caption() {
     let title: Vec<u16> = "PawHide".encode_utf16().chain(Some(0)).collect();
     let hwnd = unsafe {
-        windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
-            std::ptr::null(),
-            title.as_ptr(),
-        )
+        windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(std::ptr::null(), title.as_ptr())
     };
     if hwnd.is_null() {
         return;
