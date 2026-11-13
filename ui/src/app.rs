@@ -889,7 +889,7 @@ fn with_runtime<F: FnOnce(&mut Runtime, &PawHideWindow)>(
 // Match the native Windows title bar to PawHide's graphite colors.
 // Supported on Windows 11; on earlier systems these attributes fail harmlessly.
 fn style_native_caption() {
-    let title: Vec<u16> = "PawHide\\0".encode_utf16().collect();
+    let title: Vec<u16> = "PawHide".encode_utf16().chain(Some(0)).collect();
     let hwnd = unsafe {
         windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
             std::ptr::null(),
@@ -907,7 +907,11 @@ fn style_native_caption() {
         return;
     }
     // COLORREF uses 0x00BBGGRR. Keep system window controls intact.
-    for (attribute, color) in [(35u32, 0x00241B1C_u32), (36, 0x00F8F1F3), (34, 0x002F2126)] {
+    for (attribute, color) in [
+        (35u32, 0x00241B1C_u32),
+        (36, 0x00F8F1F3),
+        (34, 0x002F2126),
+    ] {
         unsafe {
             windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(
                 hwnd,
