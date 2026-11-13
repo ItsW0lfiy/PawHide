@@ -1,6 +1,6 @@
 [alias]
 # Normal Cargo commands are Rust builds; cargo all packages the same release binaries.
 # The first Slint migration build must resolve a new Cargo.lock dependency graph.
-all = "run -p pawhide-xtask -- all"
+all = "run --locked -p pawhide-xtask -- all"
 # Builds and launches the GUI with its matching CLI/helper DLL; no separate frontend.
-app = "run -p pawhide-xtask -- app"
+app = "run --locked -p pawhide-xtask -- app"
