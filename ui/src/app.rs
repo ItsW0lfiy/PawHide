@@ -886,6 +886,38 @@ fn with_runtime<F: FnOnce(&mut Runtime, &PawHideWindow)>(
         work(&mut state.borrow_mut(), &ui);
     }
 }
+// Match the native Windows title bar to PawHide's graphite colors.
+// Supported on Windows 11; on earlier systems these attributes fail harmlessly.
+fn style_native_caption() {
+    let title: Vec<u16> = "PawHide\\0".encode_utf16().collect();
+    let hwnd = unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+            std::ptr::null(),
+            title.as_ptr(),
+        )
+    };
+    if hwnd.is_null() {
+        return;
+    }
+    let mut pid = 0;
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, &mut pid)
+    };
+    if pid != unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() } {
+        return;
+    }
+    // COLORREF uses 0x00BBGGRR. Keep system window controls intact.
+    for (attribute, color) in [(35u32, 0x00241B1C_u32), (36, 0x00F8F1F3), (34, 0x002F2126)] {
+        unsafe {
+            windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(
+                hwnd,
+                attribute,
+                &color as *const u32 as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
 pub fn run() -> Result<(), slint::PlatformError> {
     let ui = PawHideWindow::new()?;
     let state = Rc::new(RefCell::new(Runtime::new()));
@@ -1037,6 +1069,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
             timer_state.borrow_mut().tick(&ui);
         }
     });
+    ui.show()?;
+    style_native_caption();
     let result = ui.run();
     state.borrow().cancel.store(true, Ordering::Relaxed);
     drop(timer);
