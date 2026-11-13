@@ -15,9 +15,12 @@ try {
         $info.UseShellExecute = $false
         $info.CreateNoWindow = $true
         $process = [Diagnostics.Process]::Start($info)
-        if (-not $process.WaitForExit(10000)) {
+        # The CLI now allows up to 13 seconds for the monitor to finish a
+        # bounded helper operation. The installer must wait longer than that
+        # before treating normal shutdown as a hang.
+        if (-not $process.WaitForExit(18000)) {
             $process.Kill()
-            throw 'The monitor did not stop within 10 seconds. Close PawHide, then retry.'
+            throw 'The AutoHide stop command did not exit within 18 seconds. Close PawHide, then retry.'
         }
         $process.Dispose()
         try {

@@ -36,7 +36,7 @@ cargo all
 ```
 
 `cargo all` is a Cargo alias backed by the repository's small Rust build task.
-It formats Rust sources, runs Clippy, release compilation, workspace tests, installer
+It checks Rust formatting without rewriting source files, runs Clippy, release compilation, workspace tests, installer
 fixtures and then produces all three files under `dist/`: the portable
 `PawHide-Windows-x64.zip`, its SHA-256 manifest and the **online**
 `PawHide-setup.exe`. No separate NSIS install or command is necessary. It uses

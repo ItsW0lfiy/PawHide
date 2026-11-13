@@ -77,8 +77,15 @@ try {
         'SKIP: upgrade rollback fixture requires AutoHide stopped; the existing monitor was left untouched.'
     } else {
         New-Item -ItemType Directory -Path (Join-Path $testRoot 'upgrade') | Out-Null
-        # This local fixture executable never signals the real monitor event.
-        Add-Type -TypeDefinition 'public class MaintenanceFixture { public static int Main(string[] args) { return 1; } }' -OutputAssembly (Join-Path $testRoot 'upgrade/pawhide.exe') -OutputType ConsoleApplication
+        # A real, harmless Windows executable is enough for the maintenance
+        # preflight: it will be invoked with "auto stop", but cannot signal
+        # the PawHide monitor event. PowerShell 7+ does not support compiling
+        # ConsoleApplication assemblies through Add-Type -OutputType.
+        $fixtureProgram = Join-Path ([Environment]::SystemDirectory) 'where.exe'
+        if (-not (Test-Path -LiteralPath $fixtureProgram -PathType Leaf)) {
+            throw "Missing harmless fixture executable: $fixtureProgram"
+        }
+        Microsoft.PowerShell.Management\Copy-Item -LiteralPath $fixtureProgram -Destination (Join-Path $testRoot 'upgrade/pawhide.exe')
         [IO.File]::WriteAllText((Join-Path $testRoot 'upgrade/PawHideUI.exe'), 'previous UI')
         [IO.File]::WriteAllText((Join-Path $testRoot 'upgrade/pawhide_agent.dll'), 'previous agent')
         $before = @{}
