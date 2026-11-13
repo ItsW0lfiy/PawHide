@@ -69,7 +69,13 @@ fn run() -> Result<(), String> {
         // before running, while excluding the already-running task binary.
         cargo(
             &root,
-            &["build", "--locked", "--workspace", "--exclude", "pawhide-xtask"],
+            &[
+                "build",
+                "--locked",
+                "--workspace",
+                "--exclude",
+                "pawhide-xtask",
+            ],
             "Build PawHide GUI, CLI helper and agent together",
         )?;
         let target_dir = env::var_os("CARGO_TARGET_DIR")
