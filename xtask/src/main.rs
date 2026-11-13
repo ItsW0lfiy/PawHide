@@ -94,7 +94,11 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    cargo(&root, &["fmt", "--all", "--check"], "Check Rust formatting without modifying source files")?;
+    cargo(
+        &root,
+        &["fmt", "--all", "--check"],
+        "Check Rust formatting without modifying source files",
+    )?;
     cargo(
         &root,
         &[
