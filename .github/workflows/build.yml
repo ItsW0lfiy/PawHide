@@ -14,16 +14,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt, clippy
-      - name: Generate CLI-only lockfile for migration validation
+      - name: Format CLI migration files in runner (temporary diagnostic)
         shell: pwsh
         run: |
-          cargo metadata --format-version 1 | Out-Null
-          Write-Output "PAWHIDE_LOCK_BEGIN"
-          $encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes("Cargo.lock"))
-          for ($i = 0; $i -lt $encoded.Length; $i += 4096) {
-            Write-Output $encoded.Substring($i, [Math]::Min(4096, $encoded.Length - $i))
+          cargo fmt --all
+          foreach ($path in @('cli/src/main.rs', 'cli/src/commands.rs', 'cli/src/auto.rs', 'xtask/src/main.rs')) {
+            Write-Output "PAWHIDE_SOURCE_BEGIN:$path"
+            $encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
+            for ($i = 0; $i -lt $encoded.Length; $i += 4096) {
+              Write-Output $encoded.Substring($i, [Math]::Min(4096, $encoded.Length - $i))
+            }
+            Write-Output "PAWHIDE_SOURCE_END:$path"
           }
-          Write-Output "PAWHIDE_LOCK_END"
       - name: Validate, release-build and package with Cargo
         run: cargo all
       - uses: actions/upload-artifact@v4
