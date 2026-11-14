@@ -9,7 +9,7 @@ or inject into Discord to rewrite its private video stream.
 
 Normal local display stays untouched. The user can have Roblox filling a
 monitor, **Explorer and PicView both protected and still locally visible above
-Roblox**, with unprotected PawHide visible above them. Compatible monitor
+Roblox**, with an unrelated unprotected application visible above them. Compatible monitor
 capture should show Roblox and the unprotected PawHide, not the two protected
 windows. Capture affinity applies to all compatible capture programs, not
 just Discord.
@@ -45,13 +45,13 @@ Manual and automatic affinity use separate live-HWND properties. Automatic clean
 
 `Excluded` means a verified 0x11 affinity. `Blacked / WDA_MONITOR` means 0x1; Microsoft documents black/empty output for that older mode and that pre-2004 Windows treats 0x11 as 0x1. Even 0x11 can behave differently across capture backends. Inspect a real preview and the intended stream; no software readback alone certifies what a viewer sees.
 
-The native preview is a separate WGC monitor capture. Its source, processed, and visible-preview frame rates are measured separately and do not certify Discord's backend. It does not record, transmit, modify another application's capture, or inject into a capture client.
+The retired graphical preview is not part of the CLI-only PawHide build. The CLI's affinity readback and live text status are diagnostics, not screenshots; verify the actual receiving stream through your capture application. PawHide does not record, transmit, modify another application's capture, or inject into a capture client.
 
 ## Regression acceptance scenarios
 
 1. **Local preservation**: Protect PicView and an Explorer folder window;
    locally both stay visible and usable on top of fullscreen/borderless Roblox.
-   Unprotected PawHide stays visible locally and on the capture.
+   An unrelated unprotected local application remains visible on the desktop and capture.
 2. **Screen capture**: Verify with a second viewer of Discord's *full monitor*
    share. The protected windows themselves are absent, and content underneath
    them remains visible. If not, report unprotected rather than success.
@@ -62,9 +62,9 @@ The native preview is a separate WGC monitor capture. Its source, processed, and
    `pawhide capture taskbar status`, then `hide`, inspect the actual monitor
    stream, and use `show` to restore capture. Test both success and failure.
    On multi-monitor setups inspect each taskbar separately.
-5. **Stability**: The GUI remains responsive on timeout. Window handles are
-   revalidated before injection. No blanket explorer.exe process action is
-   permitted.
+5. **Stability**: CLI helper operations have bounded deadlines, and the
+   AutoHide monitor remains stoppable through target failures. Window handles
+   are revalidated before injection; no blanket explorer.exe action is permitted.
 6. **Auto rules**: Newly opened protected documents must not be reported
    hidden until verified in the chosen capture path. Explorer tabs may share
    a single HWND; PawHide cannot hide one tab while leaving other tabs in

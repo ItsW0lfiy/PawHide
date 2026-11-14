@@ -29,7 +29,7 @@ try {
             throw 'The background monitor is still running. Stop it before continuing.'
         } catch [Threading.WaitHandleCannotBeOpenedException] { }
     }
-    foreach ($name in 'pawhide.exe', 'PawHideUI.exe', 'pawhide_agent.dll') {
+    foreach ($name in 'pawhide.exe', 'pawhide_agent.dll', 'PawHideUI.exe') {
         $path = Join-Path $Destination $name
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             try {

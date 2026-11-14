@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli", "agent", "ui", "xtask"]
-# CLI is the development priority; BOTH executables participate in a default build.
-default-members = ["core", "cli", "agent", "ui"]
+members = ["core", "cli", "agent", "xtask"]
+# The CLI and capture agent are the only shipped application components.
+default-members = ["core", "cli", "agent"]
 
 [workspace.package]
 version = "0.3.3"

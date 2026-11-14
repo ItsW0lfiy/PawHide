@@ -196,6 +196,15 @@ pub fn command(command: AutoCommand) -> Result<()> {
         AutoCommand::Status => status(),
         AutoCommand::Start => start(),
         AutoCommand::Stop => stop(),
+        AutoCommand::Restart => {
+            // Never terminate a monitored app or force-kill a stuck monitor.
+            // If stopping fails, do not launch a competing monitor.
+            if is_running() {
+                stop()?;
+            }
+            println!("Restarting AutoHide using the saved application and folder rules...");
+            start()
+        }
         AutoCommand::Run => run_monitor(),
         AutoCommand::Sync => {
             let cfg = config::load()?;

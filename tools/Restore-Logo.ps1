@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Source,
-    [string]$Destination = (Join-Path $PSScriptRoot '../ui/assets'),
+    [string]$Destination = (Join-Path $PSScriptRoot '../assets'),
     [string]$Comparison
 )
 $ErrorActionPreference = 'Stop'

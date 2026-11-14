@@ -1,5 +1,5 @@
 use crate::{
-    CaptureCommand, ConfigCommand, FolderCommand, LogsCommand, TaskbarCommand,
+    CaptureCommand, ConfigCommand, FolderCommand, LogsCommand, TaskbarCommand, WindowFilter,
     presentation as display,
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     process::Command,
     thread,
     time::Duration,
@@ -85,9 +85,36 @@ fn target_windows(target: Option<&str>, title: Option<&str>, pick: bool) -> Resu
     }
 }
 
-pub fn list(target: Option<&str>, show_windows: bool, all: bool, json_output: bool) -> Result<()> {
+fn matches_filter(window: &Window, filter: WindowFilter) -> bool {
+    match filter {
+        WindowFilter::All => true,
+        WindowFilter::Excluded => window.affinity == Some(EXCLUDED),
+        WindowFilter::Visible => window.affinity == Some(0),
+        WindowFilter::Attention => {
+            !matches!(window.affinity, Some(0) | Some(EXCLUDED))
+                || platform::unsupported_reason(&window.exe).is_some()
+        }
+    }
+}
+
+pub fn list(
+    target: Option<&str>,
+    show_windows: bool,
+    all: bool,
+    search: Option<&str>,
+    filter: WindowFilter,
+    json_output: bool,
+) -> Result<()> {
     let mut windows = platform::windows()?;
-    windows.retain(|w| (all || !w.tool_window) && target.is_none_or(|name| matches_name(w, name)));
+    let query = search.unwrap_or("").trim().to_lowercase();
+    windows.retain(|w| {
+        (all || !w.tool_window)
+            && target.is_none_or(|name| matches_name(w, name))
+            && (query.is_empty()
+                || w.exe.to_lowercase().contains(&query)
+                || w.title.to_lowercase().contains(&query))
+            && matches_filter(w, filter)
+    });
     windows.sort_by(|a, b| {
         a.exe
             .to_lowercase()
@@ -170,6 +197,139 @@ pub fn list(target: Option<&str>, show_windows: bool, all: bool, json_output: bo
         );
     }
     Ok(())
+}
+
+/// Verify the local PawHide installation without injecting into any process.
+/// A successful diagnostic does not imply that Discord's capture is secure.
+pub fn doctor(json_output: bool) -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let dll = exe.with_file_name("pawhide_agent.dll");
+    let agent_present = dll.is_file();
+    let config_path = config::config_path()?;
+    let configuration = config::load();
+    let config_valid = configuration.is_ok();
+    let rule_count = configuration
+        .as_ref()
+        .map(|cfg| cfg.applications.len() + cfg.folders.len())
+        .unwrap_or(0);
+    let monitor_running = pawhide_core::monitor::running();
+    let discovered = platform::windows();
+    let window_count = discovered.as_ref().map(Vec::len).unwrap_or(0);
+    let windows_available = discovered.is_ok();
+    let log_path = config_path.with_file_name("auto.log");
+    let problems: Vec<String> = [
+        (!agent_present).then(|| format!("Agent DLL missing: {}", dll.display())),
+        (!config_valid).then(|| {
+            format!(
+                "Configuration cannot be loaded: {}",
+                configuration.as_ref().err().expect("config error was checked")
+            )
+        }),
+        (!windows_available).then(|| {
+            format!(
+                "Cannot enumerate windows: {}",
+                discovered.as_ref().err().expect("window error was checked")
+            )
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let notes: Vec<String> = [
+        (!monitor_running && rule_count > 0).then(|| {
+            "Saved rules exist, but AutoHide is stopped. Run pawhide auto start.".to_string()
+        }),
+        (monitor_running && rule_count == 0).then(|| {
+            "AutoHide is running without saved rules; inspect pawhide auto status.".to_string()
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok": problems.is_empty(),
+                "executable": exe.display().to_string(),
+                "agent": dll.display().to_string(),
+                "agent_present": agent_present,
+                "config": config_path.display().to_string(),
+                "config_valid": config_valid,
+                "saved_rules": rule_count,
+                "monitor_running": monitor_running,
+                "windows_available": windows_available,
+                "detected_windows": window_count,
+                "log": log_path.display().to_string(),
+                "problems": problems,
+                "notes": notes,
+                "capture_verified": false
+            }))?
+        );
+    } else {
+        println!("{}", display::accent("PawHide diagnostics"));
+        println!(
+            "  Agent DLL       {}  {}",
+            if agent_present { "OK     " } else { "MISSING" },
+            dll.display()
+        );
+        println!(
+            "  Configuration   {}  {}",
+            if config_valid { "OK     " } else { "ERROR  " },
+            config_path.display()
+        );
+        println!("  Saved rules     {rule_count}");
+        println!(
+            "  AutoHide        {}",
+            if monitor_running { "Running" } else { "Stopped" }
+        );
+        println!(
+            "  Windows         {} ({window_count} detected)",
+            if windows_available { "OK" } else { "ERROR" }
+        );
+        println!("  Log             {}", log_path.display());
+        for note in &notes {
+            println!("  {} {note}", display::warn("Note:"));
+        }
+        for problem in &problems {
+            eprintln!("  {} {problem}", display::bad("ERROR:"));
+        }
+        println!(
+            "\n{}",
+            display::dim("No windows were modified. Capture output remains unverified.")
+        );
+    }
+    ensure!(
+        problems.is_empty(),
+        "PawHide doctor found {} installation problem(s)",
+        problems.len()
+    );
+    Ok(())
+}
+
+/// A live terminal status view. Does not affect capture state or saved rules.
+pub fn watch(interval: u64) -> Result<()> {
+    let terminal = io::stdout().is_terminal();
+    println!("PawHide live status (Ctrl+C to stop; refresh every {interval}s)");
+    loop {
+        if terminal {
+            print!("\x1B[2J\x1B[H");
+        } else {
+            println!("\n--- PawHide snapshot ---");
+        }
+        println!(
+            "AutoHide: {}",
+            if pawhide_core::monitor::running() {
+                display::good("Running")
+            } else {
+                display::warn("Stopped")
+            }
+        );
+        list(None, false, false, None, WindowFilter::All, false)?;
+        io::stdout().flush()?;
+        thread::sleep(Duration::from_secs(interval));
+    }
 }
 
 pub fn change(

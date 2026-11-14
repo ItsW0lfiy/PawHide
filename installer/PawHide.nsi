@@ -12,13 +12,13 @@ InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 RequestExecutionLevel user
 ShowInstDetails show
 ShowUninstDetails show
-!define MUI_ICON "${__FILEDIR__}\..\ui\assets\PawHide.ico"
-!define MUI_UNICON "${__FILEDIR__}\..\ui\assets\PawHide.ico"
+!define MUI_ICON "${__FILEDIR__}\..\assets\PawHide.ico"
+!define MUI_UNICON "${__FILEDIR__}\..\assets\PawHide.ico"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\PawHideUI.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Open PawHide"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\PawHide.cmd"
+!define MUI_FINISHPAGE_RUN_TEXT "Open PawHide command prompt"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -53,10 +53,19 @@ Section "Download and install PawHide" Main
   SetOutPath "$INSTDIR"
   CopyFiles /SILENT "$PLUGINSDIR\maintenance.ps1" "$INSTDIR\maintenance.ps1"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\PawHide.lnk" "$INSTDIR\PawHideUI.exe"
-  CreateShortcut "$SMPROGRAMS\PawHide CLI.lnk" "$INSTDIR\pawhide.exe"
+  ; A small interactive launcher opens a console in PawHide's installation
+  ; directory, prints help, and keeps the session available for commands.
+  FileOpen $2 "$INSTDIR\PawHide.cmd" w
+  FileWrite $2 "@echo off$\r$\n"
+  FileWrite $2 "cd /d $\"%~dp0$\"$\r$\n"
+  FileWrite $2 "pawhide.exe --help$\r$\n"
+  FileWrite $2 "cmd /k$\r$\n"
+  FileClose $2
+  CreateShortcut "$SMPROGRAMS\PawHide.lnk" "$INSTDIR\PawHide.cmd"
+  ; Also replace the legacy GUI-era CLI shortcut with the same console.
+  CreateShortcut "$SMPROGRAMS\PawHide CLI.lnk" "$INSTDIR\PawHide.cmd"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "PawHide"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\PawHideUI.exe,0"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\pawhide.exe,0"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "ItsW0lfiy"
@@ -82,6 +91,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\PawHide.lnk"
   Delete "$SMPROGRAMS\PawHide CLI.lnk"
   Delete "$INSTDIR\pawhide.exe"
+  Delete "$INSTDIR\PawHide.cmd"
   Delete "$INSTDIR\PawHideUI.exe"
   Delete "$INSTDIR\pawhide_agent.dll"
   Delete "$INSTDIR\maintenance.ps1"

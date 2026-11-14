@@ -27,7 +27,7 @@ function Invoke-WebRequest {
 
 function Copy-Item {
     param([string]$LiteralPath, [string]$Destination, [switch]$Force)
-    $failTarget = $Destination -in @((Join-Path $testRoot 'rollback/PawHideUI.exe'), (Join-Path $testRoot 'upgrade/PawHideUI.exe'))
+    $failTarget = $Destination -in @((Join-Path $testRoot 'rollback/pawhide_agent.dll'), (Join-Path $testRoot 'upgrade/pawhide_agent.dll'))
     if ($failCopy -and $failTarget -and $copyFailures.Add($Destination)) { throw 'Controlled copy failure' }
     Microsoft.PowerShell.Management\Copy-Item -LiteralPath $LiteralPath -Destination $Destination -Force:$Force
 }
@@ -49,10 +49,10 @@ function Invoke-TestInstall([string]$Name, [bool]$Success) {
 }
 
 try {
-    $names = @('pawhide.exe', 'PawHideUI.exe', 'pawhide_agent.dll', 'README.md')
+    $names = @('pawhide.exe', 'pawhide_agent.dll', 'README.md')
     New-Payload $names
     Invoke-TestInstall 'fresh' $true
-    foreach ($name in $names[0..2]) { if (-not (Test-Path -LiteralPath (Join-Path $testRoot "fresh/$name"))) { throw 'Incomplete install' } }
+    foreach ($name in $names[0..1]) { if (-not (Test-Path -LiteralPath (Join-Path $testRoot "fresh/$name"))) { throw 'Incomplete install' } }
     $badHash = $true
     Invoke-TestInstall 'tampered' $false
     if (Test-Path -LiteralPath (Join-Path $testRoot 'tampered')) { throw 'Checksum failure wrote destination files' }
@@ -60,7 +60,7 @@ try {
     New-Payload ($names + '../outside.txt')
     Invoke-TestInstall 'traversal' $false
     if (Test-Path -LiteralPath (Join-Path $testRoot 'outside.txt')) { throw 'ZIP traversal escaped extraction' }
-    New-Payload @('pawhide.exe', 'PawHideUI.exe')
+    New-Payload @('pawhide.exe')
     Invoke-TestInstall 'missing' $false
     New-Payload $names
     New-Item -ItemType Directory -Path (Join-Path $testRoot 'rollback') | Out-Null
@@ -69,7 +69,7 @@ try {
     Invoke-TestInstall 'rollback' $false
     if (Test-Path -LiteralPath (Join-Path $testRoot 'rollback/pawhide.exe')) { throw 'Partial first install was not rolled back' }
     if ([IO.File]::ReadAllText((Join-Path $testRoot 'rollback/keep.txt')) -ne 'unrelated user file') { throw 'Unrelated file changed' }
-    'PASS: fresh install, SHA-256 rejection, traversal rejection, missing component, and copy rollback.'
+    'PASS: CLI-only install, SHA-256 rejection, traversal rejection, missing DLL, and copy rollback.'
     $monitorRunning = $false
     try { $event = [Threading.EventWaitHandle]::OpenExisting('Local\PawHide.Auto.Stop'); $event.Dispose(); $monitorRunning = $true }
     catch [Threading.WaitHandleCannotBeOpenedException] { }
@@ -86,15 +86,20 @@ try {
             throw "Missing harmless fixture executable: $fixtureProgram"
         }
         Microsoft.PowerShell.Management\Copy-Item -LiteralPath $fixtureProgram -Destination (Join-Path $testRoot 'upgrade/pawhide.exe')
-        [IO.File]::WriteAllText((Join-Path $testRoot 'upgrade/PawHideUI.exe'), 'previous UI')
+        [IO.File]::WriteAllText((Join-Path $testRoot 'upgrade/PawHideUI.exe'), 'previous GUI (retired on successful upgrade)')
         [IO.File]::WriteAllText((Join-Path $testRoot 'upgrade/pawhide_agent.dll'), 'previous agent')
         $before = @{}
-        foreach ($name in $names[0..2]) { $before[$name] = (Get-FileHash -LiteralPath (Join-Path $testRoot "upgrade/$name") -Algorithm SHA256).Hash }
+        foreach ($name in $names[0..1]) { $before[$name] = (Get-FileHash -LiteralPath (Join-Path $testRoot "upgrade/$name") -Algorithm SHA256).Hash }
         Invoke-TestInstall 'upgrade' $false
-        foreach ($name in $names[0..2]) {
+        foreach ($name in $names[0..1]) {
             if ((Get-FileHash -LiteralPath (Join-Path $testRoot "upgrade/$name") -Algorithm SHA256).Hash -ne $before[$name]) { throw "Upgrade rollback changed $name" }
         }
-        'PASS: failed upgrade restored all three previous binaries byte for byte.'
+        if ([IO.File]::ReadAllText((Join-Path $testRoot 'upgrade/PawHideUI.exe')) -ne 'previous GUI (retired on successful upgrade)') { throw 'Failed upgrade did not preserve the old GUI.' }
+        'PASS: failed CLI upgrade restored both previous binaries and retained the old GUI.'
+        $failCopy = $false
+        Invoke-TestInstall 'upgrade' $true
+        if (Test-Path -LiteralPath (Join-Path $testRoot 'upgrade/PawHideUI.exe')) { throw 'Successful CLI upgrade left the retired GUI behind' }
+        'PASS: successful CLI upgrade retires the GUI without touching user data.'
     }
     $startupValue = ''
     $removedStartup = [Collections.Generic.List[string]]::new()

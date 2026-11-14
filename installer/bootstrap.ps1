@@ -9,8 +9,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$names = @('pawhide.exe', 'PawHideUI.exe', 'pawhide_agent.dll')
-$optionalEntries = @('README.md', 'docs/', 'docs/CAPTURE_BOUNDARY.md', 'docs/RELEASE_READINESS.md', 'ui/', 'ui/assets/', 'ui/assets/pawhide.png')
+$names = @('pawhide.exe', 'pawhide_agent.dll')
+$optionalEntries = @('README.md', 'docs/', 'docs/CAPTURE_BOUNDARY.md', 'docs/RELEASE_READINESS.md', 'assets/', 'assets/pawhide.png')
 $archiveName = 'PawHide-Windows-x64.zip'
 $preserveWork = $false
 $work = Join-Path ([IO.Path]::GetTempPath()) ('PawHideInstall-' + [guid]::NewGuid().ToString('N'))
@@ -49,6 +49,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
             $seen[$entry.FullName.ToLowerInvariant()] = $true
             if ($entry.Length -gt 150MB -or (($entry.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000) { throw 'Invalid portable ZIP entry.' }
         }
+        if ($seen.ContainsKey('pawhideui.exe')) { throw 'This release contains the retired GUI. A CLI-only release is required; the installation was not changed.' }
         foreach ($name in $names) { if (-not $seen.ContainsKey($name.ToLowerInvariant())) { throw "Missing component: $name" } }
     } finally { $zip.Dispose() }
     Expand-Archive -LiteralPath $archive -DestinationPath $unpack
@@ -60,6 +61,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     $backup = Join-Path $work 'previous'
     New-Item -ItemType Directory -Path $backup | Out-Null
+    $legacyUI = Join-Path $Destination 'PawHideUI.exe'
+    $legacyUIBackup = Join-Path $backup 'PawHideUI.exe'
+    if (Test-Path -LiteralPath $legacyUI -PathType Leaf) {
+        Copy-Item -LiteralPath $legacyUI -Destination $legacyUIBackup
+    }
     $replaced = @()
     try {
         foreach ($name in $names) {
@@ -67,6 +73,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
             if (Test-Path -LiteralPath $target -PathType Leaf) { Copy-Item -LiteralPath $target -Destination (Join-Path $backup $name) }
             $replaced += $name
             Copy-Item -LiteralPath (Join-Path $unpack $name) -Destination $target -Force
+        }
+        # Retire the GUI only after the new CLI and agent were copied. Keep
+        # a backup until the whole upgrade has completed successfully.
+        if (Test-Path -LiteralPath $legacyUI -PathType Leaf) {
+            Remove-Item -LiteralPath $legacyUI -Force
         }
     } catch {
         $failure = $_
@@ -78,6 +89,10 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
                 if (Test-Path -LiteralPath $previous) { Copy-Item -LiteralPath $previous -Destination $target -Force }
                 elseif (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
             } catch { $rollbackErrors += "$name : $($_.Exception.Message)" }
+        }
+        if (Test-Path -LiteralPath $legacyUIBackup -PathType Leaf) {
+            try { Copy-Item -LiteralPath $legacyUIBackup -Destination $legacyUI -Force }
+            catch { $rollbackErrors += "PawHideUI.exe : $($_.Exception.Message)" }
         }
         if ($rollbackErrors.Count -gt 0) {
             $preserveWork = $true

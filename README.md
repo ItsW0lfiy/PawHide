@@ -1,194 +1,115 @@
-# PawHide
+# PawHide — CLI-first Windows capture privacy
 
-![Original Hidden Paw emblem](ui/assets/pawhide.png)
+PawHide is a native Rust command-line utility that excludes selected application windows from compatible screen captures while keeping them visible and usable on your physical desktop. It has **no graphical frontend**: the CLI is the single user interface, and AutoHide runs as an independent background monitor.
 
-PawHide is a native Rust utility for Windows. It excludes selected top-level windows from compatible screen captures while keeping them fully visible and usable on your physical monitor. The CLI, Slint GUI, and affinity agent share the same capture-only purpose.
+**Important:** A Windows capture-affinity readback of 0x11 is not proof of what Discord, other capture clients, app switchers or system previews actually show. Always verify the *real receiving stream* before exposing private content. See [capture boundaries](docs/CAPTURE_BOUNDARY.md).
 
-This is a **v0.3.3 development build**, not a v1.0 release. An `Excluded` status confirms Windows affinity readback, **not the actual output of Discord or every capture backend**. Verify a real test stream before sharing sensitive content. See [capture boundaries](docs/CAPTURE_BOUNDARY.md) and the [release checklist](docs/RELEASE_READINESS.md).
+## Install or build
 
-## Build and check on Windows
+Requires Windows 10 version 2004+ or Windows 11 (x64). Rust builds require the repository's nightly toolchain and Windows SDK. From this checkout:
 
-Requirements: Windows 10 2004+ or Windows 11, x64 MSVC Rust, and the Windows SDK. The project-scoped nightly toolchain is required by `dll-syringe` 0.18.2. Rustfmt and Clippy are declared in `rust-toolchain.toml`.
-
-```powershell
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked
+~~~powershell
 cargo build --release --locked
-cargo test --workspace --locked
-```
+cargo all   # run checks, tests, packaging, and NSIS installer fixtures
+~~~
 
-To build and launch the Slint GUI **with the matching pawhide.exe and pawhide_agent.dll**, run:
+**The two binaries that must ship together** are `pawhide.exe` and `pawhide_agent.dll` in the same folder. There is no `PawHideUI.exe` and no `cargo app` alias. The CLI executable works directly from PowerShell or Command Prompt. The portable ZIP and online-installer bootstrap are produced in `dist/` by `cargo all` after CI/installer tests succeed.
 
-```powershell
-cargo app
-```
+The online installer downloads the latest GitHub release ZIP and verifies its SHA-256 checksum. A GUI-era release is deliberately rejected by the new CLI installer; publish a matching CLI-only ZIP and checksum **only after testing and separately approving the release**. The old published release remains unchanged.
 
-Do not launch only `cargo run -p pawhide-ui` from a clean checkout: that
-compiles the GUI but may leave its companion CLI and DLL missing, causing **all**
-hide actions and AutoHide startup to fail. `cargo app` builds the complete
-debug workspace first. The release distribution similarly ships all three
-binaries together.
+The installer preserves `%LOCALAPPDATA%\PawHide\config.json`, logs, and saved rules. When upgrading a GUI-era installation it backs up and removes the obsolete GUI executable only after replacing the matching CLI and agent; a failed upgrade restores the older binaries.
 
-To build, validate and package **everything in one command**, run:
+## Discover commands and their optional arguments
 
-```powershell
-cargo all
-```
+~~~powershell
+pawhide --help
+pawhide list --help
+pawhide hide --help
+pawhide auto --help
+pawhide auto add --help
+pawhide logs show --help
+~~~
 
-`cargo all` is a Cargo alias backed by the repository's small Rust build task.
-It checks Rust formatting without rewriting source files, uses the committed Cargo.lock without resolving a new dependency graph, runs Clippy, release compilation, workspace tests, installer
-fixtures and then produces all three files under `dist/`: the portable
-`PawHide-Windows-x64.zip`, its SHA-256 manifest and the **online**
-`PawHide-setup.exe`. No separate NSIS install or command is necessary. It uses
-an existing NSIS compiler when available; otherwise it automatically downloads
-portable NSIS 3.13, checks its [published SHA-256](https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/nsis-3.13.zip/download),
-and caches it under ignored `target/tools/nsis/`. If SourceForge is unavailable,
-it explicitly tries Chocolatey's portable mirror and verifies the same inner ZIP
-checksum; Chocolatey itself is not required or installed. The first uncached build
-needs network access. Later builds verify and reuse the cache offline; deleting
-`target/` causes the next build to download it again. No administrator rights,
-registry changes, or PATH setup are needed. `PAWHIDE_MAKENSIS` remains an optional
-explicit override. `cargo build` alone remains
-a fast Rust-only build, so it does not regenerate installer artifacts.
-A release build can fail with Windows "Access is denied" if AutoHide is using
-`target/release/pawhide.exe`; stop monitoring before rebuilding.
+**Help syntax:** square brackets denote optional values, angle brackets denote required arguments. Flags like `--verbose` are optional switches. A value following a flag, such as `--search TEXT`, is required **only when that flag is used**. Options can usually appear before or after positional arguments.
 
+### Find and protect windows
 
-Keep `target/release/pawhide.exe`, `PawHideUI.exe`, and `pawhide_agent.dll` together. Stop the background monitor and close PawHide before rebuilding files that are in use. A target application may retain an agent DLL until it exits; after an upgrade, restart affected applications if the agent export is incompatible. Do not forcibly unload code executing inside another process.
+~~~powershell
+pawhide list                                  # Group applications
+pawhide list --windows                        # Individual window titles
+pawhide list --search PicView                 # Search exe names or titles
+pawhide list --filter excluded                # Only capture-excluded windows
+pawhide list --filter attention --json        # Unknown/unsupported windows for scripts
+pawhide list PicView.exe --windows            # Narrow to one executable
+pawhide hide PicView.exe                      # Protect all eligible matching windows
+pawhide hide PicView.exe --title "Photo"      # Match a title substring
+pawhide hide --pick                           # Numbered interactive window picker
+pawhide show PicView.exe                      # Restore normal capture visibility
+pawhide status PicView.exe --verbose          # Inspect HWND/PID/affinity
+pawhide inspect PicView.exe --json            # Raw window details for scripting
+~~~
 
-Windows CI formats, lints, builds, tests, runs installer fixture tests, and compiles the NSIS installer. It uploads artifacts and **does not publish releases**, including on tag pushes. A Linux build cannot validate the Windows UI or capture engine.
+| Optional argument | Commands | Meaning |
+|---|---|---|
+| `APPLICATION` | `list`, `status`, `hide`, `show` | Target executable; `hide`/`show` need a target unless using `--pick` |
+| `--windows` | `list` | Print each window instead of grouping by application |
+| `--all` | `list` | Include tool/background windows; **does not** bypass protection safety rules |
+| `--search TEXT` | `list` | Case-insensitive substring match against executable and window title |
+| `--filter STATE` | `list` | `all` (default), `excluded`, `visible`, or `attention` |
+| `--json` | `list`, `status`, `inspect`, `doctor` | Structured output for tools/scripts |
+| `--title TEXT` | `hide`, `show` | Match window title substring; requires a target |
+| `--pick` | `hide`, `show` | Numbered terminal picker for one window |
+| `--verbose` / `-v` | `hide`, `show`, `status` | Show window IDs, owners, and technical details |
+| `--allow-shell` | `hide`, `show` | Advanced permission for an explicitly targeted Explorer/shell window; risky targets remain restricted |
 
-## CLI
+`--filter attention` matches unsupported, unknown, or non-standard affinity readings; it does not mean a failed protection attempt was detected. Discord and protected/anti-tamper game processes are not injected.
 
-```powershell
-pawhide list                           # Grouped applications and window counts
-pawhide list Wolfmark.exe              # Individual windows belonging to an application
-pawhide list --windows                 # Show all individual windows
-pawhide list --all --windows           # Include utility/overlay windows
-pawhide list --json                    # Machine-readable window inventory
-pawhide inspect PicView.exe            # Detailed title, HWND, PID, affinity
-pawhide inspect PicView.exe --json
+### AutoHide rules and Windows sign-in
 
-pawhide hide PicView.exe               # Exclude all matching windows
-pawhide show PicView.exe               # Restore normal capture visibility
-pawhide hide Wolfmark.exe --title Concept.md
-pawhide hide --pick                    # Interactive numbered window selection
-pawhide show --pick
-pawhide hide 0x1127CE --verbose        # Specific HWND (diagnostics)
-pawhide status
-pawhide status PicView.exe
-pawhide status PicView.exe --json
-
-pawhide auto add PicView.exe           # Persistent, executable-based rules
-pawhide auto remove PicView.exe
-pawhide auto list
-pawhide auto status
-pawhide auto start                     # Start background monitor
-pawhide auto sync                      # Apply rules to current windows once
-pawhide auto stop                      # Stop monitoring; existing exclusions remain
-
-pawhide startup enable                 # Start AutoHide at user login
+~~~powershell
+pawhide auto add PicView.exe                  # Save rule; start monitor if needed
+pawhide auto list                             # Saved executable rules
+pawhide auto status                           # Monitor state and coverage
+pawhide auto sync                             # Apply current rules once
+pawhide auto restart                          # Controlled stop/start, no force-kill
+pawhide auto stop                             # Stop monitoring, keep existing exclusions
+pawhide auto remove PicView.exe               # Remove an automatic rule
+pawhide startup enable                        # AutoHide at user login (per-user registry)
 pawhide startup status
 pawhide startup disable
+~~~
+
+Restart requires saved rules. If the monitor fails to stop, the restart stops with an error rather than starting a second instance. `auto stop` does **not** automatically unprotect windows that are already excluded.
+
+### Protected folders, logs and diagnostics
+
+~~~powershell
+pawhide folders add "D:\Private"              # Directory rule
+pawhide folders list
+pawhide folders match "D:\Private\notes.md"   # Check rule coverage
+pawhide folders remove "D:\Private"
 pawhide config path
 pawhide config show
 pawhide config validate
-pawhide config edit
-pawhide logs path
-pawhide logs show --lines 50
-pawhide logs follow
-pawhide version
-```
+pawhide config edit                           # Open config in Notepad
+pawhide doctor                                # Read-only installation diagnostics
+pawhide doctor --json                         # Diagnostics for scripts
+pawhide logs show --lines 60                  # Default 30; maximum 5000
+pawhide logs follow                           # Watch new monitor log entries
+pawhide watch --interval 2                    # Refresh terminal summary (Ctrl+C)
+pawhide capture taskbar status                # Experimental taskbar affinity
+~~~
 
-Use `--title` to match a specific window by partial title. It intentionally refuses ambiguous multiple matches unless you use `--pick`; the numbered picker is a **terminal selector**, not a mouse-based desktop picker. The GUI offers per-window selection. For automated scripts, use the `--json` options and exit status instead of parsing human-readable output.
+Folder automation uses verified Explorer folder paths; integration with a cooperating editor such as Wolfmark can use `pawhide folders notify 0xHWND FILE`. These rules do not magically identify every file opened in an arbitrary editor.
 
+`doctor` checks installation companions, configuration, monitor status, and window enumeration without injecting into other processes. `watch` displays a live terminal summary, not a screen recording or a real Discord capture preview. The old 60 FPS GUI preview, icons, thumbnails and visual-only preferences are retired.
 
-## Native GUI — Slint
+## Troubleshooting and release safety
 
-The GUI is implemented in **Slint** (Winit/FemtoVG), replacing egui outright. The original Rust protection/AutoHide/Windows Graphics Capture backend is preserved. The window retains its original executable name and native Windows decorations; layout and controls use graphite surfaces with purple accents. Slint's required `AboutSlint` attribution badge is in Settings.
+If a window fails to hide, first try `pawhide doctor`, then `pawhide hide PicView.exe --verbose` and `pawhide logs show --lines 60`. Agent injection into certain protected applications can fail for legitimate platform/security reasons; PawHide reports failures rather than attempting to bypass protection.
 
-**Migration build note:** this changes the Cargo dependency graph. The first `cargo all` automatically resolves and rewrites `Cargo.lock`, and formats the Rust sources. Commit the resulting lockfile after a successful Windows build before expecting reproducible `--locked` builds or releasing a Slint binary. The older egui build remains available through the previously published beta release only; there is no second frontend in `main`.
+Stop AutoHide before upgrading in-use binaries with `pawhide auto stop`. The installer checks file locks and preserves existing configuration; it does not terminate user applications or forcibly unload injected code. If an older agent DLL remains mapped inside a protected application, close and reopen that application after an upgrade.
 
+For a controlled live-Windows affinity regression, see `tools/Test-Protection.ps1`. A verified Windows API return status alone is **not** a privacy guarantee.
 
-`PawHideUI.exe` targets 900 x 580 logical pixels, resizes down to 800 x 520, and follows Windows DPI scaling with native window controls. The original Hidden Paw emblem is used throughout.
-
-- **Windows:** searchable application table, status filters, sortable headings, executable icons, and expandable top-level windows. Explorer group actions stay blocked; expand to select individual folder windows. Long titles have tooltips.
-- **Rules:** application AutoHide and protected Explorer folders. Saving a rule schedules monitoring without primary Start/Stop controls.
-- **Capture:** native live monitor preview with automatic topology discovery, pause/resume, cursor control, and separate source, processed, and visible-preview frame rates.
-- **Activity:** up to 200 session events with expandable diagnostics and a small tail of the local monitor log. No telemetry, network logging, or cloud service.
-- **Settings:** general preferences, sign-in startup, capture quality/thumbnail, opt-in taskbar experiment, and About.
-
-Protection, rule commands, and Explorer COM discovery run in disposable CLI helpers. Eight-second injection limits, cancellation, PID/HWND revalidation, and retry cooldowns prevent failures from blocking the interface. Killing a helper cannot retract a remote operation already started; its final affinity may remain uncertain.
-
-Statuses are `Excluded`, `Visible`, `Partially excluded`, `Unsupported`, `Failed`, `Unknown`, or `Blacked / WDA_MONITOR`. Roblox anti-tamper targets and Discord capture clients are never injected. Unknown process identity is rejected. Floorp agent loading currently fails in the tested session; PawHide reports that failure without calling the window excluded.
-
-## Automatic rules and ownership
-
-`auto add` and `folders add` save rules and start the single per-session monitor. Opening PawHide also ensures configured monitoring is running, with bounded retries after startup failure. Monitoring is asynchronous and cannot guarantee zero-frame privacy for a newly opened window. CLI `auto start`, `stop`, `sync`, and diagnostics remain available to administrators and scripts. `auto stop` intentionally leaves existing exclusions in place.
-
-```powershell
-pawhide folders add "D:\Private"
-pawhide folders remove "D:\Private"
-pawhide folders list
-pawhide folders match "D:\Private\document.md"
-pawhide folders notify 0x12345 "D:\Private\document.md"
-```
-
-Explorer folder rules use ShellWindows filesystem locations, never titles. When a window leaves every matching rule, only PawHide-owned automatic affinity is restored, including a prior `WDA_MONITOR` state. Later manual exclusions take priority. HWND-owned properties survive monitor restarts and disappear when Windows destroys the window, avoiding stale PID/HWND tracking. `auto sync` also reconciles owned exclusions when no rules remain.
-
-Tabs share an HWND and cannot be independently excluded. Any reported protected tab excludes the whole window. Missing locations, incomplete COM results, unavailable protected roots, or unaccounted native tab hosts retain automatic exclusion conservatively. Modern Explorer variants still require acceptance testing; uncertainty can intentionally leave a window excluded. An exclusion created by an older PawHide without ownership metadata cannot safely be classified as automatic: restore that window manually if appropriate.
-
-Document applications need explicit file-open integration through `folders notify`. Wolfmark does not yet provide this callback. Document notifications only add protection; automatic document-close cleanup is not implemented.
-
-The existing `%LOCALAPPDATA%\PawHide\config.json` application/folder format remains readable. Optional `preferences` fields default safely when absent. Writes use temporary-file replacement and retain the previous valid configuration if replacement fails. Startup uses only the user-scoped `PawHide Auto` Run entry.
-
-## Capture engine and performance
-
-Windows Graphics Capture continues across page navigation. The Slint frontend presents the live preview on Capture and accepts the thumbnail preference. A separate floating thumbnail is still pending validation. Display selection is preserved by device name across topology changes; a disconnected source is not silently replaced by a different display.
-
-Acquisition wakes on WGC frame events, drains stale frames, and counts distinct source timestamps. A reusable three-texture staging ring uses nonblocking readback. Larger sources scale on the GPU to fit 1920 x 1080 with the native D3D11 video processor; native-resolution preview is optional. Opaque pixels move into a reusable RGBA buffer before transfer into Slint's image model. Slint polls for the newest completed frame without waiting for a capture to unblock the GUI. Cursor changes update the session without restarting it.
-
-The target is smooth 60 FPS on an actively updating supported source. Counters report acquired frames, processed readbacks, and distinct images submitted to a visible preview separately; static sources and hidden previews can report lower rates. Initial development-session samples were approximately 50-56 FPS; sustained 60 FPS remains an acceptance item, not a verified claim. No duplicate frames are manufactured. HDR tone mapping and recording are not implemented. No FFmpeg dependency is used.
-
-## Distribution and installation
-
-- `PawHide-setup.exe`: small per-user NSIS online installer, Start Menu entries, Apps registration, and uninstall support.
-- `PawHide-Windows-x64.zip`: portable CLI, GUI, agent, and README, with a SHA-256 companion manifest.
-
-The installer anonymously fetches the latest **public** GitHub release metadata, pins both ZIP and checksum to that release, validates the exact manifest filename and SHA-256, checks ZIP entries, then installs only the three required binaries. It does not prompt ordinary users for GitHub credentials. The repository is currently private: public online installation cannot succeed until public distribution is enabled and matching release assets exist. Developers can use authorized workflow artifacts directly while it remains private.
-
-Close PawHide and protected applications before upgrading or uninstalling if Windows locks their binaries. Maintenance stops the monitor with a deadline and never terminates target applications. Upgrades preserve rules and unrelated files, attempt rollback on a copy failure, and retain backups if rollback fails. Uninstall removes only PawHide files, shortcuts, its Apps key, and an exactly matching startup command. User configuration and logs survive uninstall. Open PawHide after maintenance to resume configured monitoring, including after an aborted upgrade; the installer offers this on its Finish page.
-
-Build and package both distributions with `cargo all`; it invokes NSIS
-automatically and tests the installer fixtures before packaging. The online
-setup continues to require a public release when it is actually *run*, but
-generating it does not access PawHide release assets. See the build instructions above.
-
-The installer fixtures do not contact GitHub or alter a real installation. They cover checksums, ZIP traversal/missing components, and rollback. Real public download, upgrade, shortcuts, Apps registration, and uninstall still need an isolated user-account acceptance test.
-
-## Diagnostics and branding
-
-The original logo had a fully opaque charcoal outer matte. `tools/Restore-Logo.ps1` removes only the rounded badge's exterior matte, feathers and unmattes the outer glow, and preserves interior artwork pixels. It generates PNG and 32-bit ICO entries at 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 pixels. Supply an unmodified original as `-Source`; do not repeatedly process the restored PNG. No AI regeneration was used.
-
-Additional interactive checks:
-
-```powershell
-cargo test -p pawhide-agent --locked native_ownership_roundtrip -- --ignored --nocapture
-cargo test -p pawhide-ui --release --locked gpu_scaling_and_readback -- --ignored --nocapture
-cargo test -p pawhide-core --locked explicit_titleless_taskbar_lookup -- --ignored --nocapture
-./tools/Test-Protection.ps1 -Application floorp.exe
-```
-
-The protection script requires one initially visible application window, uses a bounded helper, and restores its original capture affinity afterward where possible. A failure is an error, not proof of privacy. Never target anti-tamper software or a capture client.
-
-## License decision required
-
-Cargo metadata already declares `MIT`, but the repository has no standalone license text. No legal terms have been changed or new license selected in this work. The owner must confirm the intended terms and copyright notice before distribution.
-
-| Option | Relevant tradeoff |
-| --- | --- |
-| [MIT](https://opensource.org/license/mit) | Short permissive terms; retain copyright and permission notices. |
-| [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Permissive with an explicit contributor patent grant and additional notice obligations. |
-| [GPL-3.0](https://opensource.org/license/GPL-3.0) | Distributed modified versions carry source-sharing and copyleft obligations. |
-
-Dependencies and branding assets also need a distribution-notice review before a public release. Version 1.0 and public publication remain owner decisions.
+The repository remains a **development build**. A successful CI build or ZIP generation does not authorize a public release. Confirm distribution rights, the intended license and actual Discord capture behavior separately. Cargo metadata says MIT, but the repository's standalone license text still needs owner approval.

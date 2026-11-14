@@ -16,7 +16,7 @@ $stage = Join-Path $dist 'portable'
 . (Join-Path $PSScriptRoot 'Resolve-NSIS.ps1')
 $nsis = Get-PawHideNsis -RepositoryRoot $root
 
-$executables = @('pawhide.exe', 'PawHideUI.exe', 'pawhide_agent.dll')
+$executables = @('pawhide.exe', 'pawhide_agent.dll')
 foreach ($name in $executables) {
     if (-not (Test-Path -LiteralPath (Join-Path $release $name) -PathType Leaf)) {
         throw "Missing release artifact $name. Run cargo all from the PawHide workspace."
@@ -30,11 +30,11 @@ foreach ($name in $executables) {
     Copy-Item -LiteralPath (Join-Path $release $name) -Destination (Join-Path $stage $name)
 }
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $stage 'README.md')
-New-Item -ItemType Directory -Path (Join-Path $stage 'docs'), (Join-Path $stage 'ui\assets') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $stage 'docs'), (Join-Path $stage 'assets') -Force | Out-Null
 foreach ($name in @('CAPTURE_BOUNDARY.md', 'RELEASE_READINESS.md')) {
     Copy-Item -LiteralPath (Join-Path $root "docs\$name") -Destination (Join-Path $stage "docs\$name")
 }
-Copy-Item -LiteralPath (Join-Path $root 'ui\assets\pawhide.png') -Destination (Join-Path $stage 'ui\assets\pawhide.png')
+Copy-Item -LiteralPath (Join-Path $root 'assets\pawhide.png') -Destination (Join-Path $stage 'assets\pawhide.png')
 
 $archiveName = 'PawHide-Windows-x64.zip'
 $archive = Join-Path $dist $archiveName
