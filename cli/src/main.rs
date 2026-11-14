@@ -41,73 +41,120 @@ enum Command {
     #[command(hide = true)]
     ExplorerSnapshot,
     /// List detected applications or individual windows.
-    #[command(after_help = "EXAMPLES:\n  pawhide list\n  pawhide list PicView.exe --windows\n  pawhide list --search terminal --filter visible\n  pawhide list --filter attention --json\n\nA capture state is a Windows affinity readback, not a verified Discord stream.")]
+    #[command(
+        after_help = "EXAMPLES:\n  pawhide list\n  pawhide list PicView.exe --windows\n  pawhide list --search terminal --filter visible\n  pawhide list --filter attention --json\n\nA capture state is a Windows affinity readback, not a verified Discord stream."
+    )]
     List {
         /// Optional executable name (e.g. PicView.exe or PicView).
         #[arg(value_name = "APPLICATION")]
         target: Option<String>,
         /// Display individual window titles instead of grouping by executable.
-        #[arg(long, help = "Show each top-level window separately, including its title and capture state")]
+        #[arg(
+            long,
+            help = "Show each top-level window separately, including its title and capture state"
+        )]
         windows: bool,
         /// Include tool/background windows normally omitted from listings.
-        #[arg(long, help = "Include detected tool/background windows (does not bypass safety restrictions)")]
+        #[arg(
+            long,
+            help = "Include detected tool/background windows (does not bypass safety restrictions)"
+        )]
         all: bool,
         /// Match text in executable names or window titles (case-insensitive).
-        #[arg(long, value_name = "TEXT", help = "Filter by application name or window title, case-insensitively")]
+        #[arg(
+            long,
+            value_name = "TEXT",
+            help = "Filter by application name or window title, case-insensitively"
+        )]
         search: Option<String>,
         /// Show only matching capture states.
         #[arg(long, value_enum, default_value_t = WindowFilter::All, value_name = "STATE", help = "Filter: all, excluded, visible, or attention")]
         filter: WindowFilter,
         /// Machine-readable JSON array of matching windows.
-        #[arg(long, help = "Write machine-readable JSON instead of a formatted table")]
+        #[arg(
+            long,
+            help = "Write machine-readable JSON instead of a formatted table"
+        )]
         json: bool,
     },
     /// Exclude a supported application/window from compatible captures.
-    #[command(after_help = "EXAMPLES:\n  pawhide hide PicView.exe\n  pawhide hide PicView.exe --title Photo\n  pawhide hide --pick\n  pawhide hide 0x12345 --verbose\n\nA successful command verifies Windows affinity only. Always inspect your actual stream.")]
+    #[command(
+        after_help = "EXAMPLES:\n  pawhide hide PicView.exe\n  pawhide hide PicView.exe --title Photo\n  pawhide hide --pick\n  pawhide hide 0x12345 --verbose\n\nA successful command verifies Windows affinity only. Always inspect your actual stream."
+    )]
     Hide {
         /// Executable name or 0x-prefixed window handle; omit when using --pick.
         #[arg(value_name = "APPLICATION|0xHWND")]
         target: Option<String>,
         /// Match a window by a substring of its title; use --pick for ambiguous matches.
-        #[arg(long, value_name = "TEXT", help = "Select only windows with this title substring (requires a target)")]
+        #[arg(
+            long,
+            value_name = "TEXT",
+            help = "Select only windows with this title substring (requires a target)"
+        )]
         title: Option<String>,
         /// Select one window interactively by number.
         #[arg(long, help = "Open a numbered terminal picker to choose one window")]
         pick: bool,
         /// Advanced: allow explicitly selected Explorer/shell windows.
-        #[arg(long, help = "Advanced: permit supported shell windows after strict HWND checks")]
+        #[arg(
+            long,
+            help = "Advanced: permit supported shell windows after strict HWND checks"
+        )]
         allow_shell: bool,
         /// Print each affected window handle and title.
-        #[arg(long, short, help = "Display window IDs and titles alongside the result")]
+        #[arg(
+            long,
+            short,
+            help = "Display window IDs and titles alongside the result"
+        )]
         verbose: bool,
     },
     /// Restore normal capture visibility for a window/application.
-    #[command(after_help = "EXAMPLES:\n  pawhide show PicView.exe\n  pawhide show --pick\n  pawhide show 0x12345 --verbose\n\nThis changes compatible capture visibility; it does not minimize or unhide desktop windows.")]
+    #[command(
+        after_help = "EXAMPLES:\n  pawhide show PicView.exe\n  pawhide show --pick\n  pawhide show 0x12345 --verbose\n\nThis changes compatible capture visibility; it does not minimize or unhide desktop windows."
+    )]
     Show {
         /// Executable name or 0x-prefixed window handle; omit when using --pick.
         #[arg(value_name = "APPLICATION|0xHWND")]
         target: Option<String>,
         /// Select windows matching this title substring.
-        #[arg(long, value_name = "TEXT", help = "Select only windows with this title substring (requires a target)")]
+        #[arg(
+            long,
+            value_name = "TEXT",
+            help = "Select only windows with this title substring (requires a target)"
+        )]
         title: Option<String>,
         /// Open a numbered terminal picker to choose one window.
         #[arg(long, help = "Choose a single window interactively by number")]
         pick: bool,
         /// Advanced: allow explicitly selected Explorer/shell windows.
-        #[arg(long, help = "Advanced: permit supported shell windows after strict HWND checks")]
+        #[arg(
+            long,
+            help = "Advanced: permit supported shell windows after strict HWND checks"
+        )]
         allow_shell: bool,
         /// Print each affected window handle and title.
-        #[arg(long, short, help = "Display window IDs and titles alongside the result")]
+        #[arg(
+            long,
+            short,
+            help = "Display window IDs and titles alongside the result"
+        )]
         verbose: bool,
     },
     /// Inspect affinity readback (omit the target for an overall summary).
-    #[command(after_help = "EXAMPLES:\n  pawhide status\n  pawhide status PicView.exe -v\n  pawhide status --json\n\nAn 'excluded' status does not guarantee that every capture backend honors it.")]
+    #[command(
+        after_help = "EXAMPLES:\n  pawhide status\n  pawhide status PicView.exe -v\n  pawhide status --json\n\nAn 'excluded' status does not guarantee that every capture backend honors it."
+    )]
     Status {
         /// Optional executable name or 0x-prefixed window handle.
         #[arg(value_name = "APPLICATION|0xHWND")]
         target: Option<String>,
         /// Include HWND, PID, and raw affinity data.
-        #[arg(long, short, help = "Include window handles, process IDs and raw affinity values")]
+        #[arg(
+            long,
+            short,
+            help = "Include window handles, process IDs and raw affinity values"
+        )]
         verbose: bool,
         /// Machine-readable snapshot.
         #[arg(long, help = "Output JSON for scripts or integrations")]
@@ -123,7 +170,9 @@ enum Command {
         json: bool,
     },
     /// Manage automatic protection rules and the background monitor.
-    #[command(after_help = "EXAMPLES:\n  pawhide auto add PicView.exe\n  pawhide auto list\n  pawhide auto status\n  pawhide auto restart\n  pawhide auto sync\n\nStopping monitoring does not undo already applied exclusions.")]
+    #[command(
+        after_help = "EXAMPLES:\n  pawhide auto add PicView.exe\n  pawhide auto list\n  pawhide auto status\n  pawhide auto restart\n  pawhide auto sync\n\nStopping monitoring does not undo already applied exclusions."
+    )]
     Auto {
         #[command(subcommand)]
         command: Option<AutoCommand>,
@@ -154,7 +203,9 @@ enum Command {
         command: CaptureCommand,
     },
     /// Check installation, agent DLL, rules, monitor, and window discovery.
-    #[command(after_help = "Checks the local installation without injecting into any application.\nEXAMPLES:\n  pawhide doctor\n  pawhide doctor --json")]
+    #[command(
+        after_help = "Checks the local installation without injecting into any application.\nEXAMPLES:\n  pawhide doctor\n  pawhide doctor --json"
+    )]
     Doctor {
         /// Produce a machine-readable diagnostics report.
         #[arg(long, help = "Print a structured JSON diagnostics report")]
@@ -279,7 +330,12 @@ enum LogsCommand {
     /// Print recent monitor log lines.
     Show {
         /// Number of newest lines (default: 30, maximum: 5000).
-        #[arg(long, default_value_t = 30, value_name = "COUNT", help = "Show the last COUNT lines (default 30, capped at 5000)")]
+        #[arg(
+            long,
+            default_value_t = 30,
+            value_name = "COUNT",
+            help = "Show the last COUNT lines (default 30, capped at 5000)"
+        )]
         lines: usize,
     },
     /// Stream new AutoHide log lines until interrupted (Ctrl+C).
@@ -346,7 +402,14 @@ fn run() -> Result<()> {
                 search,
                 filter,
                 json,
-            } => commands::list(target.as_deref(), windows, all, search.as_deref(), filter, json),
+            } => commands::list(
+                target.as_deref(),
+                windows,
+                all,
+                search.as_deref(),
+                filter,
+                json,
+            ),
             Hide {
                 target,
                 title,
@@ -440,9 +503,12 @@ mod tests {
     fn new_diagnostics_and_list_filters_parse() {
         assert!(Cli::try_parse_from(["pawhide", "doctor", "--json"]).is_ok());
         assert!(Cli::try_parse_from(["pawhide", "auto", "restart"]).is_ok());
-        assert!(Cli::try_parse_from([
-            "pawhide", "list", "--search", "PicView", "--filter", "excluded", "--json"
-        ]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "pawhide", "list", "--search", "PicView", "--filter", "excluded", "--json"
+            ])
+            .is_ok()
+        );
         assert!(Cli::try_parse_from(["pawhide", "watch", "--interval", "0"]).is_err());
     }
     #[test]

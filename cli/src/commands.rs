@@ -155,7 +155,7 @@ pub fn list(
         println!(
             "\n{}",
             display::dim(&format!(
-                "{} windows · use `inspect <exe>` for handles and diagnostics",
+                "{} windows Â· use `inspect <exe>` for handles and diagnostics",
                 windows.len()
             ))
         );
@@ -190,7 +190,7 @@ pub fn list(
         println!(
             "\n{}",
             display::dim(&format!(
-                "{} applications · {} windows · `list <exe>` for individual windows",
+                "{} applications Â· {} windows Â· `list <exe>` for individual windows",
                 groups.len(),
                 windows.len()
             ))
@@ -219,18 +219,14 @@ pub fn doctor(json_output: bool) -> Result<()> {
     let log_path = config_path.with_file_name("auto.log");
     let problems: Vec<String> = [
         (!agent_present).then(|| format!("Agent DLL missing: {}", dll.display())),
-        (!config_valid).then(|| {
-            format!(
-                "Configuration cannot be loaded: {}",
-                configuration.as_ref().err().expect("config error was checked")
-            )
-        }),
-        (!windows_available).then(|| {
-            format!(
-                "Cannot enumerate windows: {}",
-                discovered.as_ref().err().expect("window error was checked")
-            )
-        }),
+        configuration
+            .as_ref()
+            .err()
+            .map(|error| format!("Configuration cannot be loaded: {error}")),
+        discovered
+            .as_ref()
+            .err()
+            .map(|error| format!("Cannot enumerate windows: {error}")),
     ]
     .into_iter()
     .flatten()
@@ -282,7 +278,11 @@ pub fn doctor(json_output: bool) -> Result<()> {
         println!("  Saved rules     {rule_count}");
         println!(
             "  AutoHide        {}",
-            if monitor_running { "Running" } else { "Stopped" }
+            if monitor_running {
+                "Running"
+            } else {
+                "Stopped"
+            }
         );
         println!(
             "  Windows         {} ({window_count} detected)",
@@ -360,23 +360,23 @@ pub fn change(
             Ok(true) => {
                 success += 1;
                 println!(
-                    "{} {} — {}{}",
-                    display::good("✓"),
+                    "{} {} â {}{}",
+                    display::good("â"),
                     w.exe,
                     action,
                     if verbose {
-                        format!(" · 0x{:X} · {}", w.hwnd, w.title)
+                        format!(" Â· 0x{:X} Â· {}", w.hwnd, w.title)
                     } else {
                         String::new()
                     }
                 );
             }
             Ok(false) => eprintln!(
-                "{} {} — Windows affinity could not be verified",
+                "{} {} â Windows affinity could not be verified",
                 display::warn("?"),
                 w.exe
             ),
-            Err(err) => eprintln!("{} {} — {err:#}", display::bad("✗"), w.exe),
+            Err(err) => eprintln!("{} {} â {err:#}", display::bad("â"), w.exe),
         }
     }
     println!(
@@ -414,17 +414,17 @@ pub fn status(target: Option<&str>, verbose: bool, json_output: bool) -> Result<
     if target.is_some() {
         for w in &found {
             let mark = if w.affinity == Some(EXCLUDED) {
-                display::good("● Protected")
+                display::good("â Protected")
             } else if w.affinity == Some(0) {
-                "○ Visible".into()
+                "â Visible".into()
             } else {
                 display::warn("? Unverified")
             };
-            println!("{} — {}", w.exe, mark);
+            println!("{} â {}", w.exe, mark);
             println!("  {}", display::brief(&w.title, 100));
             if verbose {
                 println!(
-                    "  HWND 0x{:X} · PID {} · affinity {:?}",
+                    "  HWND 0x{:X} Â· PID {} Â· affinity {:?}",
                     w.hwnd, w.pid, w.affinity
                 )
             }
@@ -438,7 +438,7 @@ pub fn status(target: Option<&str>, verbose: bool, json_output: bool) -> Result<
     println!(
         "{}",
         display::dim(&format!(
-            "Protected: {protected} · Visible: {visible} · Unknown: {}",
+            "Protected: {protected} Â· Visible: {visible} Â· Unknown: {}",
             found.len() - protected - visible
         ))
     );
@@ -546,7 +546,7 @@ pub fn config(command: ConfigCommand) -> Result<()> {
             config::load()?;
             println!(
                 "{} Configuration valid: {}",
-                display::good("✓"),
+                display::good("â"),
                 path.display()
             )
         }
@@ -617,7 +617,7 @@ pub fn capture(command: CaptureCommand) -> Result<()> {
                 TaskbarCommand::Status => {
                     for bar in &taskbars {
                         println!(
-                            "{} · {} · HWND 0x{:X}",
+                            "{} Â· {} Â· HWND 0x{:X}",
                             bar.title,
                             platform::state(bar.affinity),
                             bar.hwnd
