@@ -27,6 +27,7 @@ fn query() -> Result<Option<String>> {
     Ok(value)
 }
 pub fn command(cmd: StartupCommand) -> Result<()> {
+    display::header("WINDOWS STARTUP", "Current-user AutoHide sign-in registration");
     match cmd {
         StartupCommand::Enable => {
             let target = startup_command()?;
@@ -38,15 +39,12 @@ pub fn command(cmd: StartupCommand) -> Result<()> {
                 "Windows refused to register startup: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            println!(
-                "{} AutoHide will start after Windows login",
-                display::good("✓")
-            );
-            println!("  {}", target);
+            display::success("AutoHide will start at Windows sign-in.");
+            display::field("Command", target);
         }
         StartupCommand::Disable => {
             if query()?.is_none() {
-                println!("Startup was already disabled");
+                display::note("Startup was already disabled.");
                 return Ok(());
             }
             let output = invoke(&["delete", REGKEY, "/v", VALUE, "/f"])?;
@@ -54,7 +52,7 @@ pub fn command(cmd: StartupCommand) -> Result<()> {
                 output.status.success(),
                 "unable to remove PawHide startup entry"
             );
-            println!("{} PawHide Windows startup disabled", display::good("✓"));
+            display::success("PawHide Windows startup disabled.");
         }
         StartupCommand::Status => match query()? {
             Some(command) => println!(

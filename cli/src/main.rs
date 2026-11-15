@@ -392,7 +392,7 @@ enum WindowFilter {
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("{} {}", presentation::bad("Error:"), err);
+        presentation::error(&format!("{err:#}"));
         std::process::exit(1);
     }
 }

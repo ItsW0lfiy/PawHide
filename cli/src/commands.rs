@@ -55,7 +55,7 @@ fn target_windows(target: Option<&str>, title: Option<&str>, pick: bool) -> Resu
     ensure!(!windows.is_empty(), "no matching visible windows found");
     if pick {
         windows.sort_by(|a, b| a.exe.cmp(&b.exe).then(a.title.cmp(&b.title)));
-        println!("{}", display::accent("Select a window"));
+        display::header("SELECT WINDOW", "Choose a single window to change");
         for (i, w) in windows.iter().enumerate() {
             println!(
                 "  {:>2}. {:<25} {:<9} {}",
@@ -246,21 +246,15 @@ pub fn doctor(json_output: bool) -> Result<()> {
 /// A live terminal status view. Does not affect capture state or saved rules.
 pub fn watch(interval: u64) -> Result<()> {
     let terminal = io::stdout().is_terminal();
-    println!("PawHide live status (Ctrl+C to stop; refresh every {interval}s)");
     loop {
         if terminal {
             print!("\x1B[2J\x1B[H");
         } else {
             println!("\n--- PawHide snapshot ---");
         }
-        println!(
-            "AutoHide: {}",
-            if pawhide_core::monitor::running() {
-                display::good("Running")
-            } else {
-                display::warn("Stopped")
-            }
-        );
+        display::header("LIVE STATUS", &format!("AutoHide: {} | Refresh: {interval}s | Ctrl+C to stop",
+            if pawhide_core::monitor::running() { "Running" } else { "Stopped" }
+        ));
         list(None, false, false, None, WindowFilter::All, false)?;
         io::stdout().flush()?;
         thread::sleep(Duration::from_secs(interval));
