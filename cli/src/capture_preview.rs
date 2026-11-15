@@ -11,15 +11,16 @@ use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
         BI_RGB, BITMAPINFO, BLACK_BRUSH, DIB_RGB_COLORS, EnumDisplayMonitors, GetMonitorInfoW,
-        GetStockObject, HDC, HMONITOR, MONITORINFOEXW, SRCCOPY, StretchDIBits,
+        GetStockObject, HDC, HMONITOR, MONITORINFOEXW, SRCCOPY, StretchDIBits, BeginPaint,
+        EndPaint, FillRect, InvalidateRect, PAINTSTRUCT,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::WindowsAndMessaging::{
-        BeginPaint, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-        EndPaint, FillRect, GetClientRect, InvalidateRect, LoadCursorW, PeekMessageW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+        GetClientRect, LoadCursorW, PeekMessageW,
         PostQuitMessage, RegisterClassW, SetWindowDisplayAffinity, SetWindowPos,
         SetWindowTextW, TranslateMessage, WNDCLASSW, CW_USEDEFAULT, IDC_ARROW, MSG,
-        PAINTSTRUCT, PM_REMOVE, SWP_NOMOVE, SWP_NOSIZE, WM_DESTROY, WM_KEYDOWN, WM_PAINT,
+        PM_REMOVE, SWP_NOMOVE, SWP_NOSIZE, WM_DESTROY, WM_KEYDOWN, WM_PAINT,
         WM_QUIT, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     },
 };
@@ -49,7 +50,7 @@ fn scan_monitors() -> Result<Vec<Monitor>> {
         });
         1
     }
-    let mut found = Vec::new();
+    let mut found: Vec<Monitor> = Vec::new();
     ensure!(unsafe {
         EnumDisplayMonitors(ptr::null_mut(), ptr::null_mut(), Some(collect), &mut found as *mut _ as LPARAM)
     } != 0, "Windows could not enumerate displays");
@@ -171,7 +172,7 @@ pub fn preview(
             if msg.message == WM_QUIT { return Ok(()); }
             if msg.message == WM_KEYDOWN && msg.hwnd == hwnd {
                 match msg.wParam as u32 {
-                    0x1B => unsafe { DestroyWindow(hwnd) },
+                    0x1B => { unsafe { DestroyWindow(hwnd); } },
                     0x43 => { cursor = !cursor; session.set_cursor(cursor); println!("Cursor capture: {}", cursor); }
                     0x4E => {
                         native = !native;

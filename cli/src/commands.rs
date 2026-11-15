@@ -497,6 +497,7 @@ pub fn logs(command: LogsCommand) -> Result<()> {
             }
         }
     }
+    Ok(())
 }
 
 /// Only explicitly identified Explorer taskbars are eligible. This affects

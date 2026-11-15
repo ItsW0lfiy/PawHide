@@ -23,9 +23,6 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_UI_Accessibility",
 ] }
 
-[target.'cfg(windows)'.build-dependencies]
-winres = "0.1"
-
 # Windows Graphics Capture supports the CLI-launched live preview.
 windows = { version = "=0.62.2", features = [
   "Foundation", "Graphics", "Graphics_Capture", "Graphics_DirectX",
@@ -35,3 +32,6 @@ windows = { version = "=0.62.2", features = [
   "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11",
   "Win32_System_WinRT_Graphics_Capture"
 ] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
