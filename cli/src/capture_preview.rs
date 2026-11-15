@@ -166,6 +166,7 @@ pub fn preview(
     let mut last_counts = (0_u64, 0_u64);
     let mut shown = 0_u64;
     let mut last_frame = Instant::now();
+    let mut received_frame = false;
     loop {
         let mut msg = MSG::default();
         while unsafe { PeekMessageW(&mut msg, ptr::null_mut(), 0, 0, PM_REMOVE) } != 0 {
@@ -182,6 +183,8 @@ pub fn preview(
                         native = !native;
                         if session.is_some() {
                             session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
+                            received_frame = false;
+                            last_frame = Instant::now();
                         }
                         println!("Native resolution: {}", native);
                     }
@@ -190,6 +193,8 @@ pub fn preview(
                         selected = selected % monitors.len() + 1;
                         if session.is_some() {
                             session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
+                            received_frame = false;
+                            last_frame = Instant::now();
                         }
                         println!("Monitor: {} ({})", monitors[selected - 1].name, selected);
                     }
@@ -200,12 +205,14 @@ pub fn preview(
                         } else {
                             session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
                             last_frame = Instant::now();
+                            received_frame = false;
                             println!("Preview resumed.");
                         }
                     }
                     0x52 => {
                         session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
                         last_frame = Instant::now();
+                        received_frame = false;
                         println!("Preview restarted");
                     }
                     0x54 => {
@@ -232,6 +239,7 @@ pub fn preview(
             unsafe { InvalidateRect(hwnd, ptr::null(), 0) };
             shown += 1;
             last_frame = Instant::now();
+            received_frame = true;
         }
         if let Some(error) = session.as_ref().and_then(CaptureSession::error) {
             bail!("Capture worker failed: {}", error);
@@ -252,7 +260,9 @@ pub fn preview(
             shown = 0;
             last = Instant::now();
         }
-        if session.is_some() && last_frame.elapsed() > Duration::from_secs(15) {
+        // A static desktop may legitimately stop producing changed frames.
+        // Time out only before the first frame of each new capture session.
+        if session.is_some() && !received_frame && last_frame.elapsed() > Duration::from_secs(15) {
             bail!("No capture frames received for 15 seconds. Check display selection and capture permissions.");
         }
         thread::sleep(Duration::from_millis(12));

@@ -55,12 +55,11 @@ pub fn command(cmd: StartupCommand) -> Result<()> {
             display::success("PawHide Windows startup disabled.");
         }
         StartupCommand::Status => match query()? {
-            Some(command) => println!(
-                "Startup: {}\nCommand: {}",
-                display::good("Enabled"),
-                command
-            ),
-            None => println!("Startup: Disabled"),
+            Some(command) => {
+                display::field("State", display::good("Enabled"));
+                display::field("Command", command);
+            }
+            None => display::field("State", display::warn("Disabled")),
         },
     }
     Ok(())

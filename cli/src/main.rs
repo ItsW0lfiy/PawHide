@@ -19,6 +19,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "pawhide",
     version,
+    arg_required_else_help = true,
     about = "Protect selected Windows application windows from compatible screen captures",
     long_about = "PawHide excludes selected application windows from compatible screen captures without hiding them on the physical desktop.\n\nA successful affinity readback is NOT proof of what Discord or every capture backend actually shows. Verify the stream before sharing sensitive content.",
     after_help = "EXAMPLES:\n  pawhide list --search picview\n  pawhide list --windows --filter excluded\n  pawhide hide PicView.exe --verbose\n  pawhide show PicView.exe\n  pawhide auto add PicView.exe\n  pawhide auto restart\n  pawhide doctor\n\nTIP: Run 'pawhide <COMMAND> --help' for options, examples, and safety notes."

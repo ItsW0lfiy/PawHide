@@ -84,7 +84,7 @@ pawhide config set thumbnail false
 pawhide config set show-system-windows true
 ~~~
 
-Within the preview, **M** cycles displays, **C** toggles cursor, **N** toggles native resolution, **T** toggles always-on-top, **R** restarts capture, and **Esc** closes it. The window title shows **source / processed / preview FPS** (60 FPS target, not a guaranteed rate). Settings in `config` persist; flags and live keyboard toggles apply to the current preview only. The thumbnail option is now an optional small window, not a floating overlay over another GUI page.
+Within the preview, **M** cycles displays, **C** toggles cursor, **N** toggles native resolution, **T** toggles always-on-top, **R** restarts capture, **P** pauses/resumes it, and **Esc** closes it. The window title shows **source / processed / preview FPS** (60 FPS target, not a guaranteed rate). Settings in `config` persist; flags and live keyboard toggles apply to the current preview only. The thumbnail option is now an optional small window, not a floating overlay over another GUI page.
 
 A correctly excluded window in the WGC preview is useful evidence, but **not proof that Discord or another client uses the same capture backend**. Confirm the actual screen share with a viewer before relying on it for privacy.
 
