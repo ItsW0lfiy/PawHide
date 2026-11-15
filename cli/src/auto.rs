@@ -1,4 +1,4 @@
-use crate::AutoCommand;
+use crate::{AutoCommand, presentation as display};
 use anyhow::{Context, Result, ensure};
 use pawhide_core::{config, platform};
 use std::{
@@ -50,39 +50,50 @@ fn is_running() -> bool {
 
 fn list_rules() -> Result<()> {
     let cfg = config::load()?;
+    display::header("AUTOHIDE RULES", "Applications protected automatically when monitoring is active");
     if cfg.applications.is_empty() {
-        println!("No AutoHide applications configured. Try: pawhide auto add PicView.exe");
+        display::note("No application rules configured.");
+        display::next("pawhide auto add PicView.exe");
     } else {
-        println!("AutoHide applications:");
-        for name in cfg.applications {
-            println!("  {name}");
-        }
+        let rows = cfg.applications.iter().map(|name| vec![display::Cell::plain(name)]).collect::<Vec<_>>();
+        display::table(&["Application"], &rows);
+        display::field("Application rules", cfg.applications.len());
     }
     Ok(())
 }
 
 fn status() -> Result<()> {
-    println!(
-        "AutoHide: {}",
-        if is_running() { "Running" } else { "Stopped" }
-    );
     let cfg = config::load()?;
-    println!("Configured applications: {}", cfg.applications.len());
-    println!("Protected folders: {}", cfg.folders.len());
-    for name in cfg.applications {
-        let found = platform::resolve(&name)?;
-        let verified = found
-            .iter()
-            .filter(|w| w.affinity == Some(platform::EXCLUDED))
-            .count();
-        println!("  {:<25} {verified}/{} excluded", name, found.len());
+    let running = is_running();
+    display::header("AUTOHIDE STATUS", "Saved rules and live monitor state");
+    display::field("Monitor", if running { display::good("Running") } else { display::warn("Stopped") });
+    display::field("Application rules", cfg.applications.len());
+    display::field("Protected folders", cfg.folders.len());
+    let mut rows = Vec::new();
+    for name in &cfg.applications {
+        let windows = platform::resolve(name)?;
+        let excluded = windows.iter().filter(|w| w.affinity == Some(platform::EXCLUDED)).count();
+        rows.push(vec![
+            display::Cell::plain(name),
+            if windows.is_empty() { display::Cell::dim("Not open") }
+            else if excluded == windows.len() { display::Cell::good(format!("{excluded}/{}", windows.len())) }
+            else { display::Cell::warn(format!("{excluded}/{}", windows.len())) },
+        ]);
     }
+    if !rows.is_empty() {
+        display::section("APPLICATION COVERAGE");
+        display::table(&["Rule", "Excluded windows"], &rows);
+    }
+    if !running && (!cfg.applications.is_empty() || !cfg.folders.is_empty()) {
+        display::next("pawhide auto start");
+    }
+    display::note("An affinity reading cannot confirm what Discord's viewers see.");
     Ok(())
 }
 
 pub fn start() -> Result<()> {
     if is_running() {
-        println!("PawHide monitor already running");
+        display::note("AutoHide monitor is already running.");
         return Ok(());
     }
     let cfg = config::load()?;
@@ -161,7 +172,7 @@ pub fn command(command: AutoCommand) -> Result<()> {
             }
             let mut cfg = config::load()?;
             if cfg.applications.contains(&name) {
-                println!("Already configured: {name}");
+                display::note(&format!("Already configured: {name}"));
             } else {
                 cfg.applications.push(name.clone());
                 cfg.applications.sort();
@@ -183,7 +194,7 @@ pub fn command(command: AutoCommand) -> Result<()> {
             let before = cfg.applications.len();
             cfg.applications.retain(|n| n != &name);
             if before == cfg.applications.len() {
-                println!("Not configured: {name}");
+                display::note(&format!("Not configured: {name}"));
             } else {
                 config::save(&cfg)?;
                 println!(
@@ -202,7 +213,7 @@ pub fn command(command: AutoCommand) -> Result<()> {
             if is_running() {
                 stop()?;
             }
-            println!("Restarting AutoHide using the saved application and folder rules...");
+            display::note("Restarting AutoHide using saved rules...");
             start()
         }
         AutoCommand::Run => run_monitor(),
@@ -214,7 +225,8 @@ pub fn command(command: AutoCommand) -> Result<()> {
                 failed == 0,
                 "{failed} rule operation(s) failed or are unsupported; affinity NOT verified"
             );
-            println!("Rule reconciliation completed; changed affinity was verified");
+            display::success("Rules synchronized; changed affinity readback verified.");
+            display::note("Capture output still needs visual verification.");
             Ok(())
         }
     }
