@@ -2,6 +2,10 @@
 mod auto;
 #[cfg(windows)]
 mod commands;
+#[cfg(windows)]
+mod capture_native;
+#[cfg(windows)]
+mod capture_preview;
 mod presentation;
 #[cfg(windows)]
 mod startup;
@@ -286,6 +290,24 @@ enum FolderCommand {
 
 #[derive(Subcommand, Debug)]
 enum CaptureCommand {
+    /// Show available physical Windows capture displays.
+    Monitors,
+    /// Launch the small, native live capture preview window.
+    #[command(after_help = "Keys in preview: M next monitor, C cursor, N native resolution, T topmost, R restart, Esc close.\nA WGC preview does not prove Discord capture safety.")]
+    Preview {
+        /// 1-based display number from capture monitors (default: primary display).
+        #[arg(long, value_name = "NUMBER")]
+        monitor: Option<usize>,
+        /// Capture the pointer; overrides the saved preference for this session.
+        #[arg(long, action = clap::ArgAction::Set, value_name = "true|false")]
+        cursor: Option<bool>,
+        /// Capture at native monitor resolution; overrides saved preference.
+        #[arg(long, action = clap::ArgAction::Set, value_name = "true|false")]
+        native_resolution: Option<bool>,
+        /// Make the preview compact and always on top; overrides saved preference.
+        #[arg(long, action = clap::ArgAction::Set, value_name = "true|false")]
+        thumbnail: Option<bool>,
+    },
     /// Experimentally exclude/restore capture of Windows taskbar windows.
     Taskbar {
         #[command(subcommand)]
@@ -314,6 +336,17 @@ enum StartupCommand {
 }
 #[derive(Subcommand, Debug)]
 enum ConfigCommand {
+    /// Show the current CLI and preview preferences.
+    Preferences,
+    /// Set one preference without disturbing application or folder rules.
+    Set {
+        /// Saved preference to change.
+        #[arg(value_enum)]
+        key: PreferenceKey,
+        /// Enabled/disabled.
+        #[arg(action = clap::ArgAction::Set, value_name = "true|false")]
+        value: bool,
+    },
     /// Print the JSON configuration path.
     Path,
     /// Print all configured rules and preferences in JSON.
@@ -342,6 +375,13 @@ enum LogsCommand {
     Follow,
 }
 
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum PreferenceKey {
+    ShowSystemWindows,
+    CaptureCursor,
+    NativeResolution,
+    Thumbnail,
+}
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 enum WindowFilter {
     All,
@@ -510,6 +550,10 @@ mod tests {
             .is_ok()
         );
         assert!(Cli::try_parse_from(["pawhide", "watch", "--interval", "0"]).is_err());
+        assert!(Cli::try_parse_from(["pawhide", "capture", "monitors"]).is_ok());
+        assert!(Cli::try_parse_from(["pawhide", "capture", "preview", "--monitor", "2"]).is_ok());
+        assert!(Cli::try_parse_from(["pawhide", "config", "preferences"]).is_ok());
+        assert!(Cli::try_parse_from(["pawhide", "config", "set", "capture-cursor", "true"]).is_ok());
     }
     #[test]
     fn manual_title_and_pick_syntax() {
