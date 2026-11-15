@@ -45,7 +45,7 @@ Manual and automatic affinity use separate live-HWND properties. Automatic clean
 
 `Excluded` means a verified 0x11 affinity. `Blacked / WDA_MONITOR` means 0x1; Microsoft documents black/empty output for that older mode and that pre-2004 Windows treats 0x11 as 0x1. Even 0x11 can behave differently across capture backends. Inspect a real preview and the intended stream; no software readback alone certifies what a viewer sees.
 
-The retired graphical preview is not part of the CLI-only PawHide build. The CLI's affinity readback and live text status are diagnostics, not screenshots; verify the actual receiving stream through your capture application. PawHide does not record, transmit, modify another application's capture, or inject into a capture client.
+The former multi-page GUI is retired, but the original Windows Graphics Capture preview is available as `pawhide capture preview`, and physical monitors are listed by `pawhide capture monitors`. This optional native window previews WGC only: it can show affinity effects without proving Discord's separate output. The CLI's affinity readback and live text status are diagnostics, not screenshots. PawHide does not record, transmit, modify another application's capture, or inject into a capture client.
 
 ## Regression acceptance scenarios
 

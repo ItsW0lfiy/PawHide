@@ -1,6 +1,6 @@
 # PawHide — CLI-first Windows capture privacy
 
-PawHide is a native Rust command-line utility that excludes selected application windows from compatible screen captures while keeping them visible and usable on your physical desktop. It has **no graphical frontend**: the CLI is the single user interface, and AutoHide runs as an independent background monitor.
+PawHide is a native Rust command-line utility that excludes selected application windows from compatible screen captures while keeping them visible and usable on your physical desktop. The CLI is the single management interface, and AutoHide runs as an independent background monitor. An optional live WGC preview opens a small native window from the same `pawhide.exe` process; the former multi-page GUI remains removed.
 
 **Important:** A Windows capture-affinity readback of 0x11 is not proof of what Discord, other capture clients, app switchers or system previews actually show. Always verify the *real receiving stream* before exposing private content. See [capture boundaries](docs/CAPTURE_BOUNDARY.md).
 
@@ -28,6 +28,8 @@ pawhide hide --help
 pawhide auto --help
 pawhide auto add --help
 pawhide logs show --help
+pawhide capture preview --help
+pawhide config set --help
 ~~~
 
 **Help syntax:** square brackets denote optional values, angle brackets denote required arguments. Flags like `--verbose` are optional switches. A value following a flag, such as `--search TEXT`, is required **only when that flag is used**. Options can usually appear before or after positional arguments.
@@ -64,6 +66,28 @@ pawhide inspect PicView.exe --json            # Raw window details for scripting
 
 `--filter attention` matches unsupported, unknown, or non-standard affinity readings; it does not mean a failed protection attempt was detected. Discord and protected/anti-tamper game processes are not injected.
 
+### Live capture preview (restored from the former GUI)
+
+The optional live capture preview uses the original **Windows Graphics Capture** pipeline, not GDI screenshots. No separate UI executable, Slint, or WebView is installed. The preview itself is excluded from WGC when Windows permits it, avoiding recursive capture. The capture window remains locally visible and useful while you run `pawhide hide` or `show` from another terminal.
+
+~~~powershell
+pawhide capture monitors                           # Physical display numbers
+pawhide capture preview                            # Primary monitor (WGC)
+pawhide capture preview --monitor 2                 # Second monitor
+pawhide capture preview --cursor true               # Include mouse pointer
+pawhide capture preview --native-resolution true    # Full native-size processing
+pawhide capture preview --thumbnail true            # Compact, always-on-top window
+pawhide config preferences                          # Saved capture defaults
+pawhide config set capture-cursor true
+pawhide config set native-resolution false
+pawhide config set thumbnail false
+pawhide config set show-system-windows true
+~~~
+
+Within the preview, **M** cycles displays, **C** toggles cursor, **N** toggles native resolution, **T** toggles always-on-top, **R** restarts capture, and **Esc** closes it. The window title shows **source / processed / preview FPS** (60 FPS target, not a guaranteed rate). Settings in `config` persist; flags and live keyboard toggles apply to the current preview only. The thumbnail option is now an optional small window, not a floating overlay over another GUI page.
+
+A correctly excluded window in the WGC preview is useful evidence, but **not proof that Discord or another client uses the same capture backend**. Confirm the actual screen share with a viewer before relying on it for privacy.
+
 ### AutoHide rules and Windows sign-in
 
 ~~~powershell
@@ -91,6 +115,8 @@ pawhide folders remove "D:\Private"
 pawhide config path
 pawhide config show
 pawhide config validate
+pawhide config preferences
+pawhide config set capture-cursor true
 pawhide config edit                           # Open config in Notepad
 pawhide doctor                                # Read-only installation diagnostics
 pawhide doctor --json                         # Diagnostics for scripts
@@ -102,7 +128,7 @@ pawhide capture taskbar status                # Experimental taskbar affinity
 
 Folder automation uses verified Explorer folder paths; integration with a cooperating editor such as Wolfmark can use `pawhide folders notify 0xHWND FILE`. These rules do not magically identify every file opened in an arbitrary editor.
 
-`doctor` checks installation companions, configuration, monitor status, and window enumeration without injecting into other processes. `watch` displays a live terminal summary, not a screen recording or a real Discord capture preview. The old 60 FPS GUI preview, icons, thumbnails and visual-only preferences are retired.
+`doctor` checks installation companions, configuration, monitor status, and window enumeration without injecting into other processes. `watch` displays a live terminal summary. The WGC preview, settings and FPS measurements are restored via CLI commands; the former graphical dashboard, icons and five-page navigation remain retired. Terminal output is designed for clear headings, tables, readable statuses and safe plain output when redirected.
 
 ## Troubleshooting and release safety
 
