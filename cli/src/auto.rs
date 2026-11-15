@@ -50,12 +50,19 @@ fn is_running() -> bool {
 
 fn list_rules() -> Result<()> {
     let cfg = config::load()?;
-    display::header("AUTOHIDE RULES", "Applications protected automatically when monitoring is active");
+    display::header(
+        "AUTOHIDE RULES",
+        "Applications protected automatically when monitoring is active",
+    );
     if cfg.applications.is_empty() {
         display::note("No application rules configured.");
         display::next("pawhide auto add PicView.exe");
     } else {
-        let rows = cfg.applications.iter().map(|name| vec![display::Cell::plain(name)]).collect::<Vec<_>>();
+        let rows = cfg
+            .applications
+            .iter()
+            .map(|name| vec![display::Cell::plain(name)])
+            .collect::<Vec<_>>();
         display::table(&["Application"], &rows);
         display::field("Application rules", cfg.applications.len());
     }
@@ -66,18 +73,32 @@ fn status() -> Result<()> {
     let cfg = config::load()?;
     let running = is_running();
     display::header("AUTOHIDE STATUS", "Saved rules and live monitor state");
-    display::field("Monitor", if running { display::good("Running") } else { display::warn("Stopped") });
+    display::field(
+        "Monitor",
+        if running {
+            display::good("Running")
+        } else {
+            display::warn("Stopped")
+        },
+    );
     display::field("Application rules", cfg.applications.len());
     display::field("Protected folders", cfg.folders.len());
     let mut rows = Vec::new();
     for name in &cfg.applications {
         let windows = platform::resolve(name)?;
-        let excluded = windows.iter().filter(|w| w.affinity == Some(platform::EXCLUDED)).count();
+        let excluded = windows
+            .iter()
+            .filter(|w| w.affinity == Some(platform::EXCLUDED))
+            .count();
         rows.push(vec![
             display::Cell::plain(name),
-            if windows.is_empty() { display::Cell::dim("Not open") }
-            else if excluded == windows.len() { display::Cell::good(format!("{excluded}/{}", windows.len())) }
-            else { display::Cell::warn(format!("{excluded}/{}", windows.len())) },
+            if windows.is_empty() {
+                display::Cell::dim("Not open")
+            } else if excluded == windows.len() {
+                display::Cell::good(format!("{excluded}/{}", windows.len()))
+            } else {
+                display::Cell::warn(format!("{excluded}/{}", windows.len()))
+            },
         ]);
     }
     if !rows.is_empty() {

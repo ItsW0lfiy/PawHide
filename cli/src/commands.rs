@@ -1,7 +1,6 @@
 use crate::{
     CaptureCommand, ConfigCommand, FolderCommand, LogsCommand, PreferenceKey, TaskbarCommand,
-    WindowFilter,
-    presentation as display,
+    WindowFilter, presentation as display,
 };
 use anyhow::{Context, Result, bail, ensure};
 use pawhide_core::{
@@ -118,22 +117,42 @@ pub fn list(
                 || w.title.to_lowercase().contains(&query))
             && matches_filter(w, filter)
     });
-    windows.sort_by(|a, b| a.exe.to_lowercase().cmp(&b.exe.to_lowercase()).then(a.title.cmp(&b.title)));
+    windows.sort_by(|a, b| {
+        a.exe
+            .to_lowercase()
+            .cmp(&b.exe.to_lowercase())
+            .then(a.title.cmp(&b.title))
+    });
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&windows.iter().map(entry).collect::<Vec<_>>())?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&windows.iter().map(entry).collect::<Vec<_>>())?
+        );
         return Ok(());
     }
-    display::header("WINDOWS", "Capture affinity from Windows. Verify your actual stream separately.");
+    display::header(
+        "WINDOWS",
+        "Capture affinity from Windows. Verify your actual stream separately.",
+    );
     if show_windows || target.is_some() {
-        let rows = windows.iter().map(|w| {
-            let capture = match w.affinity {
-                Some(EXCLUDED) => display::Cell::good("Excluded"),
-                Some(0) if platform::unsupported_reason(&w.exe).is_some() => display::Cell::bad("Visible / blocked"),
-                Some(0) => display::Cell::plain("Visible"),
-                _ => display::Cell::warn("Unverified"),
-            };
-            vec![display::Cell::plain(&w.exe), capture, display::Cell::dim(&w.title)]
-        }).collect::<Vec<_>>();
+        let rows = windows
+            .iter()
+            .map(|w| {
+                let capture = match w.affinity {
+                    Some(EXCLUDED) => display::Cell::good("Excluded"),
+                    Some(0) if platform::unsupported_reason(&w.exe).is_some() => {
+                        display::Cell::bad("Visible / blocked")
+                    }
+                    Some(0) => display::Cell::plain("Visible"),
+                    _ => display::Cell::warn("Unverified"),
+                };
+                vec![
+                    display::Cell::plain(&w.exe),
+                    capture,
+                    display::Cell::dim(&w.title),
+                ]
+            })
+            .collect::<Vec<_>>();
         display::table(&["Application", "Capture", "Window title"], &rows);
         display::field("Windows found", windows.len());
         display::next("pawhide inspect APPLICATION  |  pawhide hide APPLICATION");
@@ -142,16 +161,33 @@ pub fn list(
         for w in &windows {
             let e = groups.entry(w.exe.clone()).or_default();
             e.0 += 1;
-            if w.affinity == Some(EXCLUDED) { e.1 += 1; }
-            if w.affinity.is_none() { e.2 += 1; }
+            if w.affinity == Some(EXCLUDED) {
+                e.1 += 1;
+            }
+            if w.affinity.is_none() {
+                e.2 += 1;
+            }
         }
-        let rows = groups.iter().map(|(name, (count, protected, unknown))| {
-            let state = format!("{protected}/{count}{}", if *unknown > 0 { " (unknown)" } else { "" });
-            vec![display::Cell::plain(name), display::Cell::plain(count.to_string()),
-                 if *protected == *count { display::Cell::good(state) }
-                 else if *unknown > 0 { display::Cell::warn(state) }
-                 else { display::Cell::plain(state) }]
-        }).collect::<Vec<_>>();
+        let rows = groups
+            .iter()
+            .map(|(name, (count, protected, unknown))| {
+                let state = format!(
+                    "{protected}/{count}{}",
+                    if *unknown > 0 { " (unknown)" } else { "" }
+                );
+                vec![
+                    display::Cell::plain(name),
+                    display::Cell::plain(count.to_string()),
+                    if *protected == *count {
+                        display::Cell::good(state)
+                    } else if *unknown > 0 {
+                        display::Cell::warn(state)
+                    } else {
+                        display::Cell::plain(state)
+                    },
+                ]
+            })
+            .collect::<Vec<_>>();
         display::table(&["Application", "Windows", "Excluded"], &rows);
         display::field("Applications", groups.len());
         display::field("Windows", windows.len());
@@ -225,16 +261,65 @@ pub fn doctor(json_output: bool) -> Result<()> {
             }))?
         );
     } else {
-        display::header("DIAGNOSTICS", "Read-only checks; no protected application is modified");
-        display::field("Agent DLL", format!("{}  {}", if agent_present { display::good("OK") } else { display::bad("MISSING") }, dll.display()));
-        display::field("Configuration", format!("{}  {}", if config_valid { display::good("OK") } else { display::bad("ERROR") }, config_path.display()));
+        display::header(
+            "DIAGNOSTICS",
+            "Read-only checks; no protected application is modified",
+        );
+        display::field(
+            "Agent DLL",
+            format!(
+                "{}  {}",
+                if agent_present {
+                    display::good("OK")
+                } else {
+                    display::bad("MISSING")
+                },
+                dll.display()
+            ),
+        );
+        display::field(
+            "Configuration",
+            format!(
+                "{}  {}",
+                if config_valid {
+                    display::good("OK")
+                } else {
+                    display::bad("ERROR")
+                },
+                config_path.display()
+            ),
+        );
         display::field("Saved rules", rule_count);
-        display::field("AutoHide", if monitor_running { display::good("Running") } else { display::warn("Stopped") });
-        display::field("Window discovery", format!("{} ({} found)", if windows_available { display::good("OK") } else { display::bad("ERROR") }, window_count));
+        display::field(
+            "AutoHide",
+            if monitor_running {
+                display::good("Running")
+            } else {
+                display::warn("Stopped")
+            },
+        );
+        display::field(
+            "Window discovery",
+            format!(
+                "{} ({} found)",
+                if windows_available {
+                    display::good("OK")
+                } else {
+                    display::bad("ERROR")
+                },
+                window_count
+            ),
+        );
         display::field("Log", log_path.display());
-        for note in &notes { display::warning(note); }
-        for problem in &problems { display::error(problem); }
-        display::note("All affinity readbacks are unverified until checked in a capture preview or real stream.");
+        for note in &notes {
+            display::warning(note);
+        }
+        for problem in &problems {
+            display::error(problem);
+        }
+        display::note(
+            "All affinity readbacks are unverified until checked in a capture preview or real stream.",
+        );
     }
     ensure!(
         problems.is_empty(),
@@ -253,9 +338,17 @@ pub fn watch(interval: u64) -> Result<()> {
         } else {
             println!("\n--- PawHide snapshot ---");
         }
-        display::header("LIVE STATUS", &format!("AutoHide: {} | Refresh: {interval}s | Ctrl+C to stop",
-            if pawhide_core::monitor::running() { "Running" } else { "Stopped" }
-        ));
+        display::header(
+            "LIVE STATUS",
+            &format!(
+                "AutoHide: {} | Refresh: {interval}s | Ctrl+C to stop",
+                if pawhide_core::monitor::running() {
+                    "Running"
+                } else {
+                    "Stopped"
+                }
+            ),
+        );
         list(None, false, false, None, WindowFilter::All, false)?;
         io::stdout().flush()?;
         thread::sleep(Duration::from_secs(interval));
@@ -263,32 +356,57 @@ pub fn watch(interval: u64) -> Result<()> {
 }
 
 pub fn change(
-    target: Option<&str>, title: Option<&str>, pick: bool, protect: bool,
-    allow_shell: bool, verbose: bool,
+    target: Option<&str>,
+    title: Option<&str>,
+    pick: bool,
+    protect: bool,
+    allow_shell: bool,
+    verbose: bool,
 ) -> Result<()> {
     let chosen = target_windows(target, title, pick)?;
-    if chosen.len() > 1 && chosen.iter().any(|w| {
-        w.exe.eq_ignore_ascii_case("explorer.exe") || w.pid == platform::shell_pid()
-    }) {
+    if chosen.len() > 1
+        && chosen
+            .iter()
+            .any(|w| w.exe.eq_ignore_ascii_case("explorer.exe") || w.pid == platform::shell_pid())
+    {
         bail!("Explorer group changes are blocked; use --title, --pick, or a specific 0x handle")
     }
     let total = chosen.len();
     let mut success = 0;
-    display::header(if protect { "EXCLUDE WINDOWS" } else { "RESTORE CAPTURE" },
-        "Windows affinity will be checked after each operation");
+    display::header(
+        if protect {
+            "EXCLUDE WINDOWS"
+        } else {
+            "RESTORE CAPTURE"
+        },
+        "Windows affinity will be checked after each operation",
+    );
     for w in &chosen {
         match pawhide_core::helper::apply_shell(w, protect, false, allow_shell, || false) {
             Ok(()) => {
                 success += 1;
-                display::success(&format!("{}: {}", w.exe, if protect { "Excluded" } else { "Visible" }));
-                if verbose { display::field("Window", format!("0x{:X} | PID {} | {}", w.hwnd, w.pid, w.title)); }
+                display::success(&format!(
+                    "{}: {}",
+                    w.exe,
+                    if protect { "Excluded" } else { "Visible" }
+                ));
+                if verbose {
+                    display::field(
+                        "Window",
+                        format!("0x{:X} | PID {} | {}", w.hwnd, w.pid, w.title),
+                    );
+                }
             }
             Err(err) => display::error(&format!("{}: {err:#}", w.exe)),
         }
     }
     display::field("Verified", format!("{success}/{total}"));
     display::note("An affinity readback does not guarantee Discord capture behavior.");
-    ensure!(success == total, "{} window(s) failed or could not be verified", total - success);
+    ensure!(
+        success == total,
+        "{} window(s) failed or could not be verified",
+        total - success
+    );
     Ok(())
 }
 
@@ -298,31 +416,67 @@ pub fn status(target: Option<&str>, verbose: bool, json_output: bool) -> Result<
         ensure!(!selected.is_empty(), "no visible windows match '{target}'");
         selected
     } else {
-        platform::windows()?.into_iter().filter(|w| !w.tool_window).collect()
+        platform::windows()?
+            .into_iter()
+            .filter(|w| !w.tool_window)
+            .collect()
     };
     if json_output {
-        println!("{}", serde_json::to_string_pretty(
-            &json!({"excluded":found.iter().filter(|w|w.affinity==Some(EXCLUDED)).count(),
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &json!({"excluded":found.iter().filter(|w|w.affinity==Some(EXCLUDED)).count(),
                     "visible":found.iter().filter(|w|w.affinity==Some(0)).count(),
                     "unknown":found.iter().filter(|w|!matches!(w.affinity,Some(0)|Some(EXCLUDED))).count(),
                     "windows":found.iter().map(entry).collect::<Vec<_>>() })
-        )?);
+            )?
+        );
         return Ok(());
     }
-    display::header("PROTECTION STATUS", "Windows affinity readback, not confirmed Discord capture output");
+    display::header(
+        "PROTECTION STATUS",
+        "Windows affinity readback, not confirmed Discord capture output",
+    );
     if target.is_some() {
-        let rows = found.iter().map(|w| {
-            let state = if w.affinity == Some(EXCLUDED) { display::Cell::good("Excluded") }
-                else if w.affinity == Some(0) { display::Cell::plain("Visible") }
-                else { display::Cell::warn("Unverified") };
-            let detail = if verbose {
-                format!("PID {} | 0x{:X} | affinity {:?}", w.pid, w.hwnd, w.affinity)
-            } else { w.title.clone() };
-            vec![display::Cell::plain(&w.exe), state, display::Cell::dim(detail)]
-        }).collect::<Vec<_>>();
-        display::table(&["Application", "Capture", if verbose { "Process / handle" } else { "Window title" }], &rows);
+        let rows = found
+            .iter()
+            .map(|w| {
+                let state = if w.affinity == Some(EXCLUDED) {
+                    display::Cell::good("Excluded")
+                } else if w.affinity == Some(0) {
+                    display::Cell::plain("Visible")
+                } else {
+                    display::Cell::warn("Unverified")
+                };
+                let detail = if verbose {
+                    format!("PID {} | 0x{:X} | affinity {:?}", w.pid, w.hwnd, w.affinity)
+                } else {
+                    w.title.clone()
+                };
+                vec![
+                    display::Cell::plain(&w.exe),
+                    state,
+                    display::Cell::dim(detail),
+                ]
+            })
+            .collect::<Vec<_>>();
+        display::table(
+            &[
+                "Application",
+                "Capture",
+                if verbose {
+                    "Process / handle"
+                } else {
+                    "Window title"
+                },
+            ],
+            &rows,
+        );
     }
-    let excluded = found.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
+    let excluded = found
+        .iter()
+        .filter(|w| w.affinity == Some(EXCLUDED))
+        .count();
     let visible = found.iter().filter(|w| w.affinity == Some(0)).count();
     display::field("Excluded", display::good(&excluded.to_string()));
     display::field("Visible", visible);
@@ -331,16 +485,20 @@ pub fn status(target: Option<&str>, verbose: bool, json_output: bool) -> Result<
     Ok(())
 }
 
-
-
 pub fn inspect(target: &str, json_output: bool) -> Result<()> {
     let windows = platform::resolve(target)?;
     ensure!(!windows.is_empty(), "no visible windows match '{target}'");
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&windows.iter().map(entry).collect::<Vec<_>>())?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&windows.iter().map(entry).collect::<Vec<_>>())?
+        );
         return Ok(());
     }
-    display::header("WINDOW INSPECTOR", "Window ownership and capture affinity details");
+    display::header(
+        "WINDOW INSPECTOR",
+        "Window ownership and capture affinity details",
+    );
     for w in windows {
         display::section(&w.exe);
         display::field("Window title", &w.title);
@@ -362,7 +520,9 @@ pub fn folders(command: FolderCommand) -> Result<()> {
                 config::save(&cfg)?;
             }
             display::success(&format!("Protected folder added: {}", canonical.display()));
-            display::note("Explorer folder windows are monitored; editors require exact document-open notifications.");
+            display::note(
+                "Explorer folder windows are monitored; editors require exact document-open notifications.",
+            );
             crate::auto::start()?;
         }
         FolderCommand::Remove { path } => {
@@ -383,15 +543,25 @@ pub fn folders(command: FolderCommand) -> Result<()> {
         }
         FolderCommand::List => {
             let cfg = config::load()?;
-            display::header("PROTECTED FOLDERS", "Directories covered by AutoHide folder rules");
-            let rows = cfg.folders.iter().map(|f| vec![display::Cell::plain(f.display().to_string())]).collect::<Vec<_>>();
+            display::header(
+                "PROTECTED FOLDERS",
+                "Directories covered by AutoHide folder rules",
+            );
+            let rows = cfg
+                .folders
+                .iter()
+                .map(|f| vec![display::Cell::plain(f.display().to_string())])
+                .collect::<Vec<_>>();
             display::table(&["Folder path"], &rows);
             display::field("Folder rules", cfg.folders.len());
             display::next("pawhide folders add DIRECTORY  |  pawhide folders match FILE");
         }
         FolderCommand::Match { path } => {
             let cfg = config::load()?;
-            display::header("FOLDER RULE MATCH", "Check whether a document path is covered");
+            display::header(
+                "FOLDER RULE MATCH",
+                "Check whether a document path is covered",
+            );
             display::field("Document", path.display());
             match folders::match_document(&cfg.folders, &path)? {
                 Some(folder) => display::success(&format!("Covered by: {}", folder.display())),
@@ -402,14 +572,25 @@ pub fn folders(command: FolderCommand) -> Result<()> {
             let handle = pawhide_core::parse_hwnd(&hwnd)?.context("use 0x... HWND")?;
             let cfg = config::load()?;
             if let Some(folder) = folders::match_document(&cfg.folders, &path)? {
-                let window = platform::resolve(&hwnd)?.into_iter().find(|w| w.hwnd == handle)
+                let window = platform::resolve(&hwnd)?
+                    .into_iter()
+                    .find(|w| w.hwnd == handle)
                     .context("window handle is not a visible top-level window")?;
-                ensure!(platform::can_protect_window(&window), "this window cannot be protected");
+                ensure!(
+                    platform::can_protect_window(&window),
+                    "this window cannot be protected"
+                );
                 if window.affinity != Some(EXCLUDED) {
                     crate::auto::protect_bounded(&window)?;
                 }
-                display::success(&format!("Protected {} because the document is under {}", window.exe, folder.display()));
-                display::note("Verify the actual screen capture before assuming private content is hidden.");
+                display::success(&format!(
+                    "Protected {} because the document is under {}",
+                    window.exe,
+                    folder.display()
+                ));
+                display::note(
+                    "Verify the actual screen capture before assuming private content is hidden.",
+                );
             } else {
                 display::note("No matching protected folder; the window is unchanged.");
             }
@@ -425,7 +606,10 @@ pub fn config(command: ConfigCommand) -> Result<()> {
         ConfigCommand::Show => println!("{}", serde_json::to_string_pretty(&config::load()?)?),
         ConfigCommand::Preferences => {
             let p = config::load()?.preferences;
-            display::header("PREFERENCES", "Saved options shared by the CLI and WGC preview");
+            display::header(
+                "PREFERENCES",
+                "Saved options shared by the CLI and WGC preview",
+            );
             display::field("show-system-windows", p.show_system_windows);
             display::field("capture-cursor", p.capture_cursor);
             display::field("native-resolution", p.capture_native_resolution);
@@ -435,10 +619,22 @@ pub fn config(command: ConfigCommand) -> Result<()> {
         ConfigCommand::Set { key, value } => {
             let mut cfg = config::load()?;
             let name = match key {
-                PreferenceKey::ShowSystemWindows => { cfg.preferences.show_system_windows = value; "show-system-windows" }
-                PreferenceKey::CaptureCursor => { cfg.preferences.capture_cursor = value; "capture-cursor" }
-                PreferenceKey::NativeResolution => { cfg.preferences.capture_native_resolution = value; "native-resolution" }
-                PreferenceKey::Thumbnail => { cfg.preferences.capture_thumbnail = value; "thumbnail" }
+                PreferenceKey::ShowSystemWindows => {
+                    cfg.preferences.show_system_windows = value;
+                    "show-system-windows"
+                }
+                PreferenceKey::CaptureCursor => {
+                    cfg.preferences.capture_cursor = value;
+                    "capture-cursor"
+                }
+                PreferenceKey::NativeResolution => {
+                    cfg.preferences.capture_native_resolution = value;
+                    "native-resolution"
+                }
+                PreferenceKey::Thumbnail => {
+                    cfg.preferences.capture_thumbnail = value;
+                    "thumbnail"
+                }
             };
             config::save(&cfg)?;
             display::success(&format!("Saved {name} = {value}"));
@@ -449,8 +645,13 @@ pub fn config(command: ConfigCommand) -> Result<()> {
             display::success(&format!("Configuration valid: {}", path.display()));
         }
         ConfigCommand::Edit => {
-            if !path.exists() { config::save(&config::Config::default())?; }
-            Command::new("notepad.exe").arg(&path).spawn().context("cannot open Notepad")?;
+            if !path.exists() {
+                config::save(&config::Config::default())?;
+            }
+            Command::new("notepad.exe")
+                .arg(&path)
+                .spawn()
+                .context("cannot open Notepad")?;
             display::success(&format!("Editing {}", path.display()));
         }
     }
@@ -461,10 +662,15 @@ pub fn logs(command: LogsCommand) -> Result<()> {
     let path = config::config_path()?.with_file_name("auto.log");
     fn print_line(line: &str) {
         let upper = line.to_ascii_uppercase();
-        if upper.starts_with("WARN") { println!("  {}", display::warn(line)); }
-        else if upper.starts_with("ERROR") { println!("  {}", display::bad(line)); }
-        else if upper.starts_with("INFO") { println!("  {}", display::dim(line)); }
-        else { println!("  {line}"); }
+        if upper.starts_with("WARN") {
+            println!("  {}", display::warn(line));
+        } else if upper.starts_with("ERROR") {
+            println!("  {}", display::bad(line));
+        } else if upper.starts_with("INFO") {
+            println!("  {}", display::dim(line));
+        } else {
+            println!("  {line}");
+        }
     }
     match command {
         LogsCommand::Path => println!("{}", path.display()),
@@ -475,7 +681,14 @@ pub fn logs(command: LogsCommand) -> Result<()> {
                 return Ok(());
             }
             let content = fs::read_to_string(&path)?;
-            for line in content.lines().rev().take(lines.min(5000)).collect::<Vec<_>>().into_iter().rev() {
+            for line in content
+                .lines()
+                .rev()
+                .take(lines.min(5000))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+            {
                 print_line(line);
             }
             display::next("pawhide logs follow  |  pawhide doctor");
@@ -486,10 +699,14 @@ pub fn logs(command: LogsCommand) -> Result<()> {
             let mut offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             loop {
                 if let Ok(content) = fs::read(&path) {
-                    if (content.len() as u64) < offset { offset = 0; }
+                    if (content.len() as u64) < offset {
+                        offset = 0;
+                    }
                     if (content.len() as u64) > offset {
                         let appended = String::from_utf8_lossy(&content[offset as usize..]);
-                        for line in appended.lines() { print_line(line); }
+                        for line in appended.lines() {
+                            print_line(line);
+                        }
                         io::stdout().flush()?;
                         offset = content.len() as u64;
                     }
@@ -506,26 +723,37 @@ pub fn logs(command: LogsCommand) -> Result<()> {
 pub fn capture(command: CaptureCommand) -> Result<()> {
     match command {
         CaptureCommand::Monitors => crate::capture_preview::list_monitors(),
-        CaptureCommand::Preview { monitor, cursor, native_resolution, thumbnail } => {
-            crate::capture_preview::preview(monitor, cursor, native_resolution, thumbnail)
-        }
+        CaptureCommand::Preview {
+            monitor,
+            cursor,
+            native_resolution,
+            thumbnail,
+        } => crate::capture_preview::preview(monitor, cursor, native_resolution, thumbnail),
         CaptureCommand::Taskbar { command } => {
             let taskbars = platform::taskbar_windows()?;
             ensure!(!taskbars.is_empty(), "no Explorer taskbar windows detected");
             match command {
                 TaskbarCommand::Status => {
-                    display::header("TASKBAR CAPTURE", "Experimental shell capture-affinity inspection");
-                    let rows = taskbars.iter().map(|bar| vec![
-                        display::Cell::plain(&bar.title),
-                        if bar.affinity == Some(EXCLUDED) {
-                            display::Cell::good("Excluded")
-                        } else if bar.affinity == Some(0) {
-                            display::Cell::plain("Visible")
-                        } else {
-                            display::Cell::warn("Unverified")
-                        },
-                        display::Cell::dim(format!("0x{:X}", bar.hwnd)),
-                    ]).collect::<Vec<_>>();
+                    display::header(
+                        "TASKBAR CAPTURE",
+                        "Experimental shell capture-affinity inspection",
+                    );
+                    let rows = taskbars
+                        .iter()
+                        .map(|bar| {
+                            vec![
+                                display::Cell::plain(&bar.title),
+                                if bar.affinity == Some(EXCLUDED) {
+                                    display::Cell::good("Excluded")
+                                } else if bar.affinity == Some(0) {
+                                    display::Cell::plain("Visible")
+                                } else {
+                                    display::Cell::warn("Unverified")
+                                },
+                                display::Cell::dim(format!("0x{:X}", bar.hwnd)),
+                            ]
+                        })
+                        .collect::<Vec<_>>();
                     display::table(&["Taskbar", "Capture", "Handle"], &rows);
                     display::note("Affinity readback cannot verify Discord capture output.");
                     Ok(())
@@ -546,8 +774,14 @@ pub fn capture(command: CaptureCommand) -> Result<()> {
                         {
                             Ok(true) => {
                                 passed += 1;
-                                display::success(&format!("{}: {}", bar.title,
-                                    if hide { "excluded from compatible capture" } else { "capture restored" }
+                                display::success(&format!(
+                                    "{}: {}",
+                                    bar.title,
+                                    if hide {
+                                        "excluded from compatible capture"
+                                    } else {
+                                        "capture restored"
+                                    }
                                 ));
                             }
                             Ok(false) => eprintln!(
@@ -562,7 +796,9 @@ pub fn capture(command: CaptureCommand) -> Result<()> {
                         "{passed}/{} taskbars verified; check capture and restore if needed",
                         taskbars.len()
                     );
-                    display::note("Local taskbar visibility and Windows settings were not changed.");
+                    display::note(
+                        "Local taskbar visibility and Windows settings were not changed.",
+                    );
                     Ok(())
                 }
             }

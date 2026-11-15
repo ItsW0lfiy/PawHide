@@ -27,7 +27,10 @@ fn query() -> Result<Option<String>> {
     Ok(value)
 }
 pub fn command(cmd: StartupCommand) -> Result<()> {
-    display::header("WINDOWS STARTUP", "Current-user AutoHide sign-in registration");
+    display::header(
+        "WINDOWS STARTUP",
+        "Current-user AutoHide sign-in registration",
+    );
     match cmd {
         StartupCommand::Enable => {
             let target = startup_command()?;

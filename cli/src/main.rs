@@ -1,11 +1,11 @@
 #[cfg(windows)]
 mod auto;
 #[cfg(windows)]
-mod commands;
-#[cfg(windows)]
 mod capture_native;
 #[cfg(windows)]
 mod capture_preview;
+#[cfg(windows)]
+mod commands;
 mod presentation;
 #[cfg(windows)]
 mod startup;
@@ -294,7 +294,9 @@ enum CaptureCommand {
     /// Show available physical Windows capture displays.
     Monitors,
     /// Launch the small, native live capture preview window.
-    #[command(after_help = "Keys in preview: M next monitor, C cursor, N native resolution, T topmost, R restart, Esc close.\nA WGC preview does not prove Discord capture safety.")]
+    #[command(
+        after_help = "Keys in preview: M next monitor, C cursor, N native resolution, T topmost, R restart, Esc close.\nA WGC preview does not prove Discord capture safety."
+    )]
     Preview {
         /// 1-based display number from capture monitors (default: primary display).
         #[arg(long, value_name = "NUMBER")]
@@ -554,7 +556,9 @@ mod tests {
         assert!(Cli::try_parse_from(["pawhide", "capture", "monitors"]).is_ok());
         assert!(Cli::try_parse_from(["pawhide", "capture", "preview", "--monitor", "2"]).is_ok());
         assert!(Cli::try_parse_from(["pawhide", "config", "preferences"]).is_ok());
-        assert!(Cli::try_parse_from(["pawhide", "config", "set", "capture-cursor", "true"]).is_ok());
+        assert!(
+            Cli::try_parse_from(["pawhide", "config", "set", "capture-cursor", "true"]).is_ok()
+        );
     }
     #[test]
     fn manual_title_and_pick_syntax() {
