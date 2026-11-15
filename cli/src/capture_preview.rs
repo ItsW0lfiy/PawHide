@@ -221,11 +221,11 @@ pub fn preview(
         }
         if let Some(mut frame) = session.as_ref().and_then(CaptureSession::take_latest) {
             // Native Windows DIBs use BGRA, capture frames are RGBA.
-            for p in frame.rgba.chunks_exact_mut(4) { p.swap(0, 2); }
+            for p in frame.rgba.as_chunks_mut::<4>().0 { p.swap(0, 2); }
             let mut guard = FRAME.get().context("No frame buffer")?.lock()
                 .map_err(|_| anyhow::anyhow!("Frame buffer unavailable"))?;
             if let Some(mut old) = guard.replace(frame) {
-                for p in old.rgba.chunks_exact_mut(4) { p.swap(0, 2); }
+                for p in old.rgba.as_chunks_mut::<4>().0 { p.swap(0, 2); }
                 if let Some(active) = &session { active.recycle(old); }
             }
             drop(guard);

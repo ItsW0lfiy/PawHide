@@ -128,6 +128,7 @@ pub fn list(
         let rows = windows.iter().map(|w| {
             let capture = match w.affinity {
                 Some(EXCLUDED) => display::Cell::good("Excluded"),
+                Some(0) if platform::unsupported_reason(&w.exe).is_some() => display::Cell::bad("Visible / blocked"),
                 Some(0) => display::Cell::plain("Visible"),
                 _ => display::Cell::warn("Unverified"),
             };
