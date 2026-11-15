@@ -1,5 +1,6 @@
 use crate::{
-    CaptureCommand, ConfigCommand, FolderCommand, LogsCommand, TaskbarCommand, WindowFilter,
+    CaptureCommand, ConfigCommand, FolderCommand, LogsCommand, PreferenceKey, TaskbarCommand,
+    WindowFilter,
     presentation as display,
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -105,96 +106,55 @@ pub fn list(
     filter: WindowFilter,
     json_output: bool,
 ) -> Result<()> {
+    // Saved GUI-era system-window preference is now respected by CLI listings.
+    let include_tools = all || config::load()?.preferences.show_system_windows;
     let mut windows = platform::windows()?;
     let query = search.unwrap_or("").trim().to_lowercase();
     windows.retain(|w| {
-        (all || !w.tool_window)
+        (include_tools || !w.tool_window)
             && target.is_none_or(|name| matches_name(w, name))
             && (query.is_empty()
                 || w.exe.to_lowercase().contains(&query)
                 || w.title.to_lowercase().contains(&query))
             && matches_filter(w, filter)
     });
-    windows.sort_by(|a, b| {
-        a.exe
-            .to_lowercase()
-            .cmp(&b.exe.to_lowercase())
-            .then(a.title.cmp(&b.title))
-    });
+    windows.sort_by(|a, b| a.exe.to_lowercase().cmp(&b.exe.to_lowercase()).then(a.title.cmp(&b.title)));
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&windows.iter().map(entry).collect::<Vec<_>>())?
-        );
+        println!("{}", serde_json::to_string_pretty(&windows.iter().map(entry).collect::<Vec<_>>())?);
         return Ok(());
     }
-    if windows.is_empty() {
-        println!("No matching windows.");
-        return Ok(());
-    }
+    display::header("WINDOWS", "Capture affinity from Windows. Verify your actual stream separately.");
     if show_windows || target.is_some() {
-        println!(
-            "{}",
-            display::accent("Application                    Capture       Window title")
-        );
-        for w in &windows {
-            let state = platform::state(w.affinity);
-            let padded = format!("{state:<13}");
-            let state = match w.affinity {
-                Some(EXCLUDED) => display::good(&padded),
-                None => display::warn(&padded),
-                _ => padded,
+        let rows = windows.iter().map(|w| {
+            let capture = match w.affinity {
+                Some(EXCLUDED) => display::Cell::good("Excluded"),
+                Some(0) => display::Cell::plain("Visible"),
+                _ => display::Cell::warn("Unverified"),
             };
-            println!(
-                "{:<30} {} {}",
-                display::brief(&w.exe, 30),
-                state,
-                display::brief(&w.title, 100)
-            );
-        }
-        println!(
-            "\n{}",
-            display::dim(&format!(
-                "{} windows Â· use `inspect <exe>` for handles and diagnostics",
-                windows.len()
-            ))
-        );
+            vec![display::Cell::plain(&w.exe), capture, display::Cell::dim(&w.title)]
+        }).collect::<Vec<_>>();
+        display::table(&["Application", "Capture", "Window title"], &rows);
+        display::field("Windows found", windows.len());
+        display::next("pawhide inspect APPLICATION  |  pawhide hide APPLICATION");
     } else {
         let mut groups: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
-        for w in windows.iter() {
+        for w in &windows {
             let e = groups.entry(w.exe.clone()).or_default();
             e.0 += 1;
-            if w.affinity == Some(EXCLUDED) {
-                e.1 += 1
-            }
-            if w.affinity.is_none() {
-                e.2 += 1
-            }
+            if w.affinity == Some(EXCLUDED) { e.1 += 1; }
+            if w.affinity.is_none() { e.2 += 1; }
         }
-        println!(
-            "{}",
-            display::accent("Application                     Windows    Protected")
-        );
-        for (name, (count, protected, unknown)) in &groups {
-            let protected_label = format!(
-                "{protected}/{count}{}",
-                if *unknown > 0 { " ?" } else { "" }
-            );
-            println!(
-                "{:<31} {:>6}    {}",
-                display::brief(name, 31),
-                count,
-                protected_label
-            );
-        }
-        println!(
-            "\n{}",
-            display::dim(&format!(
-                "{} applications Â· {} windows Â· `list <exe>` for individual windows",
-                groups.len(),
-                windows.len()
-            ))
-        );
+        let rows = groups.iter().map(|(name, (count, protected, unknown))| {
+            let state = format!("{protected}/{count}{}", if *unknown > 0 { " (unknown)" } else { "" });
+            vec![display::Cell::plain(name), display::Cell::plain(count.to_string()),
+                 if *protected == *count { display::Cell::good(state) }
+                 else if *unknown > 0 { display::Cell::warn(state) }
+                 else { display::Cell::plain(state) }]
+        }).collect::<Vec<_>>();
+        display::table(&["Application", "Windows", "Excluded"], &rows);
+        display::field("Applications", groups.len());
+        display::field("Windows", windows.len());
+        display::next("pawhide list --windows  |  pawhide list --search TEXT");
     }
     Ok(())
 }
@@ -397,53 +357,40 @@ pub fn status(target: Option<&str>, verbose: bool, json_output: bool) -> Result<
         ensure!(!selected.is_empty(), "no visible windows match '{target}'");
         selected
     } else {
-        platform::windows()?
-            .into_iter()
-            .filter(|w| !w.tool_window)
-            .collect()
+        platform::windows()?.into_iter().filter(|w| !w.tool_window).collect()
     };
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &json!({"excluded":found.iter().filter(|w|w.affinity==Some(EXCLUDED)).count(),"visible":found.iter().filter(|w|w.affinity==Some(0)).count(),"unknown":found.iter().filter(|w|!matches!(w.affinity,Some(0)|Some(EXCLUDED))).count(),"windows":found.iter().map(entry).collect::<Vec<_>>() })
-            )?
-        );
+        println!("{}", serde_json::to_string_pretty(
+            &json!({"excluded":found.iter().filter(|w|w.affinity==Some(EXCLUDED)).count(),
+                    "visible":found.iter().filter(|w|w.affinity==Some(0)).count(),
+                    "unknown":found.iter().filter(|w|!matches!(w.affinity,Some(0)|Some(EXCLUDED))).count(),
+                    "windows":found.iter().map(entry).collect::<Vec<_>>() })
+        )?);
         return Ok(());
     }
+    display::header("PROTECTION STATUS", "Windows affinity readback, not confirmed Discord capture output");
     if target.is_some() {
-        for w in &found {
-            let mark = if w.affinity == Some(EXCLUDED) {
-                display::good("â Protected")
-            } else if w.affinity == Some(0) {
-                "â Visible".into()
-            } else {
-                display::warn("? Unverified")
-            };
-            println!("{} â {}", w.exe, mark);
-            println!("  {}", display::brief(&w.title, 100));
-            if verbose {
-                println!(
-                    "  HWND 0x{:X} Â· PID {} Â· affinity {:?}",
-                    w.hwnd, w.pid, w.affinity
-                )
-            }
-        }
+        let rows = found.iter().map(|w| {
+            let state = if w.affinity == Some(EXCLUDED) { display::Cell::good("Excluded") }
+                else if w.affinity == Some(0) { display::Cell::plain("Visible") }
+                else { display::Cell::warn("Unverified") };
+            let detail = if verbose {
+                format!("PID {} | 0x{:X} | affinity {:?}", w.pid, w.hwnd, w.affinity)
+            } else { w.title.clone() };
+            vec![display::Cell::plain(&w.exe), state, display::Cell::dim(detail)]
+        }).collect::<Vec<_>>();
+        display::table(&["Application", "Capture", if verbose { "Process / handle" } else { "Window title" }], &rows);
     }
-    let protected = found
-        .iter()
-        .filter(|w| w.affinity == Some(EXCLUDED))
-        .count();
+    let excluded = found.iter().filter(|w| w.affinity == Some(EXCLUDED)).count();
     let visible = found.iter().filter(|w| w.affinity == Some(0)).count();
-    println!(
-        "{}",
-        display::dim(&format!(
-            "Protected: {protected} Â· Visible: {visible} Â· Unknown: {}",
-            found.len() - protected - visible
-        ))
-    );
+    display::field("Excluded", display::good(&excluded.to_string()));
+    display::field("Visible", visible);
+    display::field("Unknown", found.len() - excluded - visible);
+    display::note("An excluded affinity is not proof of an actual receiving stream.");
     Ok(())
 }
+
+
 
 pub fn inspect(target: &str, json_output: bool) -> Result<()> {
     let windows = platform::resolve(target)?;
