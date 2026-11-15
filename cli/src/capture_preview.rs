@@ -153,14 +153,14 @@ pub fn preview(
     let mut selected = requested.unwrap_or(1);
     ensure!(selected > 0 && selected <= monitors.len(),
         "Monitor {} is unavailable; run pawhide capture monitors", selected);
-    let mut session = CaptureSession::start(monitors[selected - 1].handle, cursor, native);
+    let mut session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
     FRAME.get_or_init(|| Mutex::new(None));
     let hwnd = create_preview(topmost)?;
     display::header("LIVE CAPTURE PREVIEW", "Windows Graphics Capture, not a Discord capture test");
     println!("  Source   {} ({} x {})", monitors[selected - 1].name,
         monitors[selected - 1].width, monitors[selected - 1].height);
     println!("  Options  cursor={}  native={}  topmost={}", cursor, native, topmost);
-    display::note("Preview keys: M next monitor | C cursor | N native/scaled | T topmost | R restart | Esc close");
+    display::note("Preview keys: M next monitor | C cursor | N native/scaled | T topmost | P pause/resume | R restart | Esc close");
     display::note("Change protection in another terminal, then inspect the captured window here.");
     let mut last = Instant::now();
     let mut last_counts = (0_u64, 0_u64);
@@ -173,20 +173,39 @@ pub fn preview(
             if msg.message == WM_KEYDOWN && msg.hwnd == hwnd {
                 match msg.wParam as u32 {
                     0x1B => { unsafe { DestroyWindow(hwnd); } },
-                    0x43 => { cursor = !cursor; session.set_cursor(cursor); println!("Cursor capture: {}", cursor); }
+                    0x43 => {
+                        cursor = !cursor;
+                        if let Some(active) = &session { active.set_cursor(cursor); }
+                        println!("Cursor capture: {}", cursor);
+                    }
                     0x4E => {
                         native = !native;
-                        session = CaptureSession::start(monitors[selected - 1].handle, cursor, native);
+                        if session.is_some() {
+                            session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
+                        }
                         println!("Native resolution: {}", native);
                     }
                     0x4D => {
                         monitors = scan_monitors()?;
                         selected = selected % monitors.len() + 1;
-                        session = CaptureSession::start(monitors[selected - 1].handle, cursor, native);
+                        if session.is_some() {
+                            session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
+                        }
                         println!("Monitor: {} ({})", monitors[selected - 1].name, selected);
                     }
+                    0x50 => {
+                        if session.is_some() {
+                            session = None;
+                            println!("Preview paused; source capture stopped.");
+                        } else {
+                            session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
+                            last_frame = Instant::now();
+                            println!("Preview resumed.");
+                        }
+                    }
                     0x52 => {
-                        session = CaptureSession::start(monitors[selected - 1].handle, cursor, native);
+                        session = Some(CaptureSession::start(monitors[selected - 1].handle, cursor, native));
+                        last_frame = Instant::now();
                         println!("Preview restarted");
                     }
                     0x54 => {
@@ -200,34 +219,40 @@ pub fn preview(
             }
             unsafe { TranslateMessage(&msg); DispatchMessageW(&msg) };
         }
-        if let Some(mut frame) = session.take_latest() {
+        if let Some(mut frame) = session.as_ref().and_then(CaptureSession::take_latest) {
             // Native Windows DIBs use BGRA, capture frames are RGBA.
             for p in frame.rgba.chunks_exact_mut(4) { p.swap(0, 2); }
             let mut guard = FRAME.get().context("No frame buffer")?.lock()
                 .map_err(|_| anyhow::anyhow!("Frame buffer unavailable"))?;
             if let Some(mut old) = guard.replace(frame) {
                 for p in old.rgba.chunks_exact_mut(4) { p.swap(0, 2); }
-                session.recycle(old);
+                if let Some(active) = &session { active.recycle(old); }
             }
             drop(guard);
             unsafe { InvalidateRect(hwnd, ptr::null(), 0) };
             shown += 1;
             last_frame = Instant::now();
         }
-        if let Some(error) = session.error() { bail!("Capture worker failed: {}", error); }
+        if let Some(error) = session.as_ref().and_then(CaptureSession::error) {
+            bail!("Capture worker failed: {}", error);
+        }
         if last.elapsed() >= Duration::from_secs(1) {
-            let (acquired, processed, _) = session.counts();
+            let (acquired, processed, _) = session.as_ref().map(CaptureSession::counts).unwrap_or((0, 0, 0));
             let elapsed = last.elapsed().as_secs_f64().max(0.001);
-            let title = caption(&monitors[selected - 1],
-                (acquired - last_counts.0) as f64 / elapsed,
-                (processed - last_counts.1) as f64 / elapsed,
-                shown as f64 / elapsed);
+            let title = if session.is_some() {
+                caption(&monitors[selected - 1],
+                    acquired.saturating_sub(last_counts.0) as f64 / elapsed,
+                    processed.saturating_sub(last_counts.1) as f64 / elapsed,
+                    shown as f64 / elapsed)
+            } else {
+                format!("PawHide Preview - PAUSED - {}", monitors[selected - 1].name)
+            };
             unsafe { SetWindowTextW(hwnd, wide(&title).as_ptr()) };
             last_counts = (acquired, processed);
             shown = 0;
             last = Instant::now();
         }
-        if last_frame.elapsed() > Duration::from_secs(15) {
+        if session.is_some() && last_frame.elapsed() > Duration::from_secs(15) {
             bail!("No capture frames received for 15 seconds. Check display selection and capture permissions.");
         }
         thread::sleep(Duration::from_millis(12));
