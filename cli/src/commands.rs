@@ -360,62 +360,57 @@ pub fn folders(command: FolderCommand) -> Result<()> {
                 cfg.folders.push(canonical.clone());
                 config::save(&cfg)?;
             }
-            println!("Protected folder registered: {}", canonical.display());
-            println!(
-                "Explorer folder windows will be monitored. For Wolfmark documents, exact file-open notifications remain required."
-            );
+            display::success(&format!("Protected folder added: {}", canonical.display()));
+            display::note("Explorer folder windows are monitored; editors require exact document-open notifications.");
             crate::auto::start()?;
         }
         FolderCommand::Remove { path } => {
-            // Allow removing missing/renamed folders and old \?\ saved paths.
+            // Removing a rule must also work for missing or renamed folders.
             let canonical = folders::display_path(&path);
             let mut cfg = config::load()?;
+            let before = cfg.folders.len();
             cfg.folders.retain(|folder| {
                 folder != &canonical
                     && folders::validated_folder(folder).ok().as_ref() != Some(&canonical)
             });
             config::save(&cfg)?;
-            println!("Folder rule removed: {}", canonical.display());
+            if before == cfg.folders.len() {
+                display::note(&format!("No matching folder rule: {}", canonical.display()));
+            } else {
+                display::success(&format!("Folder rule removed: {}", canonical.display()));
+            }
         }
         FolderCommand::List => {
             let cfg = config::load()?;
-            if cfg.folders.is_empty() {
-                println!("No protected folders registered.");
-            } else {
-                for folder in &cfg.folders {
-                    println!("{}", folder.display());
-                }
-            }
+            display::header("PROTECTED FOLDERS", "Directories covered by AutoHide folder rules");
+            let rows = cfg.folders.iter().map(|f| vec![display::Cell::plain(f.display().to_string())]).collect::<Vec<_>>();
+            display::table(&["Folder path"], &rows);
+            display::field("Folder rules", cfg.folders.len());
+            display::next("pawhide folders add DIRECTORY  |  pawhide folders match FILE");
         }
         FolderCommand::Match { path } => {
             let cfg = config::load()?;
+            display::header("FOLDER RULE MATCH", "Check whether a document path is covered");
+            display::field("Document", path.display());
             match folders::match_document(&cfg.folders, &path)? {
-                Some(folder) => println!("Protected by {}", folder.display()),
-                None => println!("Not protected by a folder rule"),
+                Some(folder) => display::success(&format!("Covered by: {}", folder.display())),
+                None => display::warning("No matching folder rule."),
             }
         }
         FolderCommand::Notify { hwnd, path } => {
             let handle = pawhide_core::parse_hwnd(&hwnd)?.context("use 0x... HWND")?;
             let cfg = config::load()?;
             if let Some(folder) = folders::match_document(&cfg.folders, &path)? {
-                let window = platform::resolve(&hwnd)?
-                    .into_iter()
-                    .find(|w| w.hwnd == handle)
+                let window = platform::resolve(&hwnd)?.into_iter().find(|w| w.hwnd == handle)
                     .context("window handle is not a visible top-level window")?;
-                ensure!(
-                    platform::can_protect_window(&window),
-                    "this application window cannot be protected"
-                );
+                ensure!(platform::can_protect_window(&window), "this window cannot be protected");
                 if window.affinity != Some(EXCLUDED) {
                     crate::auto::protect_bounded(&window)?;
                 }
-                println!(
-                    "Protected {} because document is inside {}",
-                    window.exe,
-                    folder.display()
-                );
+                display::success(&format!("Protected {} because the document is under {}", window.exe, folder.display()));
+                display::note("Verify the actual screen capture before assuming private content is hidden.");
             } else {
-                println!("No matching protected folder; left capture state unchanged");
+                display::note("No matching protected folder; the window is unchanged.");
             }
         }
     }
@@ -517,15 +512,20 @@ pub fn capture(command: CaptureCommand) -> Result<()> {
             ensure!(!taskbars.is_empty(), "no Explorer taskbar windows detected");
             match command {
                 TaskbarCommand::Status => {
-                    for bar in &taskbars {
-                        println!(
-                            "{} Â· {} Â· HWND 0x{:X}",
-                            bar.title,
-                            platform::state(bar.affinity),
-                            bar.hwnd
-                        );
-                    }
-                    println!("Capture affinity does not verify Discord's actual captured frames.");
+                    display::header("TASKBAR CAPTURE", "Experimental shell capture-affinity inspection");
+                    let rows = taskbars.iter().map(|bar| vec![
+                        display::Cell::plain(&bar.title),
+                        if bar.affinity == Some(EXCLUDED) {
+                            display::Cell::good("Excluded")
+                        } else if bar.affinity == Some(0) {
+                            display::Cell::plain("Visible")
+                        } else {
+                            display::Cell::warn("Unverified")
+                        },
+                        display::Cell::dim(format!("0x{:X}", bar.hwnd)),
+                    ]).collect::<Vec<_>>();
+                    display::table(&["Taskbar", "Capture", "Handle"], &rows);
+                    display::note("Affinity readback cannot verify Discord capture output.");
                     Ok(())
                 }
                 TaskbarCommand::Hide | TaskbarCommand::Show => {
@@ -544,15 +544,9 @@ pub fn capture(command: CaptureCommand) -> Result<()> {
                         {
                             Ok(true) => {
                                 passed += 1;
-                                println!(
-                                    "{}: {}",
-                                    bar.title,
-                                    if hide {
-                                        "excluded from compatible capture"
-                                    } else {
-                                        "capture restored"
-                                    }
-                                );
+                                display::success(&format!("{}: {}", bar.title,
+                                    if hide { "excluded from compatible capture" } else { "capture restored" }
+                                ));
                             }
                             Ok(false) => eprintln!(
                                 "{}: affinity readback unavailable; state NOT verified",
@@ -566,7 +560,7 @@ pub fn capture(command: CaptureCommand) -> Result<()> {
                         "{passed}/{} taskbars verified; check capture and restore if needed",
                         taskbars.len()
                     );
-                    println!("Local taskbar visibility and Windows settings were not changed.");
+                    display::note("Local taskbar visibility and Windows settings were not changed.");
                     Ok(())
                 }
             }
